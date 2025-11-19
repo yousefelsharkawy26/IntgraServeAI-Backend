@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 import time
 import logging
 from core.config import settings
-from core.database import engine, Base
+# from core.database import engine, Base  # ❌ احذف هذا السطر
 from apis import api_router
 
 # Setup logging
@@ -17,20 +17,13 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     """Startup and shutdown events"""
     # Startup
-    logger.info("🚀 Starting application...")
-    
-    # Create all tables
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    
-    logger.info("✅ Database tables created successfully")
+    logger.info("🚀 Application started successfully")
     
     yield
     
     # Shutdown
     logger.info("🛑 Shutting down application...")
-    await engine.dispose()
-    logger.info("✅ Database connections closed")
+    logger.info("✅ Application shutdown complete")
 
 
 # Initialize FastAPI app
@@ -46,7 +39,7 @@ app = FastAPI(
 # CORS Middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.CORS_ORIGINS,
+    allow_origins=["*"],  # في Development فقط
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

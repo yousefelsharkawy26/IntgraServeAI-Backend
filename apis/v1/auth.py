@@ -174,7 +174,7 @@ async def refresh_token(
     if not refresh_token:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail={"message": "Refresh token not found"}
+            detail={"message": "Invalid"}
         )
     
     try:
@@ -188,7 +188,7 @@ async def refresh_token(
         logger.error(f"Refresh token error: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail={"message": "Invalid refresh token"}
+            detail={"message": "Invalid"}
         )
 
 

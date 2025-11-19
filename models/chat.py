@@ -28,6 +28,8 @@ class ChatConversation(BaseModel):
     # Relationships
     messages = relationship('ChatMessage', back_populates='conversation', cascade='all, delete-orphan')
     rating = relationship('AgentRating', back_populates='conversation', uselist=False, cascade='all, delete-orphan')
+    # ✅ أضف relationship للـ ActionExecutionLog
+    action_logs = relationship('ActionExecutionLog', back_populates='chat_conversation', cascade='all, delete-orphan')
     
     def __repr__(self):
         return f"<ChatConversation {self.session_id}>"
@@ -40,9 +42,9 @@ class ChatMessage(BaseModel):
     chat_conversation_id = Column(UUID(as_uuid=True), ForeignKey('chat_conversations.id', ondelete='CASCADE'), nullable=False, index=True)
     sender_type = Column(SQLEnum(SenderType), nullable=False)
     message_text = Column(Text, nullable=False)
-    confidence_score = Column(Numeric(5, 2), nullable=True)  # AI confidence (0.00 to 100.00)
+    confidence_score = Column(Numeric(5, 2), nullable=True)
     intent_detected = Column(String(255), nullable=True)
-    entities_extracted = Column(JSONB, nullable=True)  # Store as JSON
+    entities_extracted = Column(JSONB, nullable=True)
     
     # Relationships
     conversation = relationship('ChatConversation', back_populates='messages')
@@ -57,7 +59,7 @@ class AgentRating(BaseModel):
     
     chat_conversation_id = Column(UUID(as_uuid=True), ForeignKey('chat_conversations.id', ondelete='CASCADE'), unique=True, nullable=False, index=True)
     external_customer_id = Column(String(255), nullable=True, index=True)
-    rating = Column(Integer, nullable=False)  # 1-5 rating
+    rating = Column(Integer, nullable=False)
     feedback = Column(Text, nullable=True)
     response_type = Column(SQLEnum(ResponseType), nullable=True)
     

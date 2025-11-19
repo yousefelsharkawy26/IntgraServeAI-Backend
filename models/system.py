@@ -23,7 +23,7 @@ class ActionProtocol(BaseModel):
     """Action Protocols table"""
     __tablename__ = 'action_protocols'
     
-    name = Column(String(100), unique=True, nullable=False, index=True)  # HTTP, SOAP, gRPC, etc.
+    name = Column(String(100), unique=True, nullable=False, index=True)
     description = Column(Text, nullable=True)
     
     # Relationships
@@ -40,8 +40,8 @@ class SystemAction(BaseModel, TimestampMixin):
     name = Column(String(255), nullable=False, index=True)
     description = Column(Text, nullable=True)
     endpoint_url = Column(String(1000), nullable=False)
-    request_template = Column(JSONB, nullable=True)  # Store request template as JSON
-    response_mapping = Column(JSONB, nullable=True)  # Store response mapping as JSON
+    request_template = Column(JSONB, nullable=True)
+    response_mapping = Column(JSONB, nullable=True)
     timeout_seconds = Column(Integer, default=30, nullable=False)
     retry_count = Column(Integer, default=3, nullable=False)
     is_active = Column(Boolean, default=True, nullable=False, index=True)
@@ -65,17 +65,27 @@ class SystemAction(BaseModel, TimestampMixin):
 class ActionExecutionLog(BaseModel):
     """Action Execution Logs table"""
     __tablename__ = 'action_execution_logs'
-    chat_conversation_id = Column(UUID(as_uuid=True), ForeignKey('chat_conversations.id', ondelete='CASCADE'), nullable=False, index=True)
+    
     system_action_id = Column(UUID(as_uuid=True), ForeignKey('system_actions.id', ondelete='CASCADE'), nullable=False, index=True)
     external_customer_id = Column(String(255), nullable=True, index=True)
     request_payload = Column(JSONB, nullable=True)
     response_payload = Column(JSONB, nullable=True)
-    status = Column(String(50), nullable=False, index=True)  # success, failed, timeout, etc.
+    status = Column(String(50), nullable=False, index=True)
     error_message = Column(Text, nullable=True)
-    execution_time_ms = Column(Integer, nullable=True)  # Execution time in milliseconds
+    execution_time_ms = Column(Integer, nullable=True)
+    
+    # Foreign Key to ChatConversation (optional - can be null)
+    chat_conversation_id = Column(
+        UUID(as_uuid=True), 
+        ForeignKey('chat_conversations.id', ondelete='CASCADE'), 
+        nullable=True,  # ✅ اجعلها nullable
+        index=True
+    )
     
     # Relationships
     system_action = relationship('SystemAction', back_populates='execution_logs')
-    conversation = relationship('ChatConversation', back_populates='messages')
+    # ✅ استخدم اسم مختلف - 'chat_conversation' بدلاً من 'conversation'
+    chat_conversation = relationship('ChatConversation', back_populates='action_logs')
+    
     def __repr__(self):
         return f"<ActionExecutionLog {self.id} - Status: {self.status}>"
