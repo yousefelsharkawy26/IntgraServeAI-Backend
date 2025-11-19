@@ -10,9 +10,12 @@ class BaseAPIException(HTTPException):
         message: str,
         errors: Optional[Dict[str, Any]] = None
     ):
-        detail = {"message": message}
+        # إذا كان فيه validation errors، نرجع errors فقط
         if errors:
-            detail["errors"] = errors
+            detail = {"errors": errors}
+        else:
+            # باقي الأخطاء نرجع message فقط
+            detail = {"message": message}
         super().__init__(status_code=status_code, detail=detail)
 
 
@@ -56,7 +59,7 @@ class NotFoundException(BaseAPIException):
 class BadRequestException(BaseAPIException):
     """Exception for bad requests"""
     def __init__(self, message: str = "Bad request"):
-        super().__init__(
+        super().__Init__(
             status_code=status.HTTP_400_BAD_REQUEST,
             message=message
         )

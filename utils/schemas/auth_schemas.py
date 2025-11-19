@@ -1,5 +1,5 @@
 from pydantic import BaseModel, EmailStr, Field, field_validator
-from typing import Optional
+from typing import Optional, Dict
 from utils.security import validate_password_strength
 
 
@@ -23,7 +23,7 @@ class LoginRequest(BaseModel):
 
 
 class TokenResponse(BaseModel):
-    """Token response schema - only access token in body"""
+    """Token response schema"""
     token: str = Field(..., description="JWT access token")
     
     class Config:
@@ -98,11 +98,30 @@ class ResetPasswordResponse(BaseModel):
 class MessageResponse(BaseModel):
     """Generic message response"""
     message: str = Field(..., description="Response message")
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "message": "Logged out successfully"
+            }
+        }
+
+
+class ErrorResponse(BaseModel):
+    """Error message response"""
+    message: str = Field(..., description="Error message")
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "message": "Invalid email or password"
+            }
+        }
 
 
 class ValidationErrorResponse(BaseModel):
     """Validation error response schema"""
-    errors: dict = Field(..., description="Validation errors")
+    errors: Dict[str, str] = Field(..., description="Validation errors")
     
     class Config:
         json_schema_extra = {

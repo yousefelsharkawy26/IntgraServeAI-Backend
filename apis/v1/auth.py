@@ -1,4 +1,5 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Query, Response, Cookie
+from fastapi import APIRouter, Depends, status, Query, Response, Cookie
+from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional
 from core.database import get_db
@@ -11,12 +12,15 @@ from utils.schemas.auth_schemas import (
     ForgotPasswordResponse,
     ResetPasswordRequest,
     ResetPasswordResponse,
-    MessageResponse
+    MessageResponse,
+    ErrorResponse,
+    ValidationErrorResponse
 )
 from utils.exceptions import (
     AuthenticationException,
     ValidationException,
-    InvalidTokenException
+    InvalidTokenException,
+    UnauthorizedException
 )
 import logging
 
@@ -29,19 +33,9 @@ logger = logging.getLogger(__name__)
     response_model=TokenResponse,
     status_code=status.HTTP_200_OK,
     responses={
-        200: {
-            "description": "Login successful - Access token in body, Refresh token in cookie",
-            "content": {
-                "application/json": {
-                    "example": {
-                        "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
-                    }
-                }
-            }
-        },
-        401: {
-            "description": "Invalid credentials"
-        }
+        200: {"description": "Login successful", "model": TokenResponse},
+        401: {"description": "Invalid credentials", "model": ErrorResponse},
+        422: {"description": "Validation errors", "model": ValidationErrorResponse}
     },
     summary="User Login",
     description="Authenticate user. Returns access token in response body and sets refresh token in httpOnly cookie."
@@ -51,14 +45,7 @@ async def login(
     credentials: LoginRequest,
     db: AsyncSession = Depends(get_db)
 ):
-    """
-    Login endpoint
-    
-    - **email**: User's registered email address
-    - **password**: User's password
-    
-    Returns access token in body and sets refresh token in secure httpOnly cookie.
-    """
+    """Login endpoint"""
     try:
         auth_service = AuthService(db)
         access_token, refresh_token = await auth_service.login(credentials)
@@ -67,30 +54,30 @@ async def login(
         response.set_cookie(
             key="refresh_token",
             value=refresh_token,
-            httponly=True,  # لا يمكن الوصول له من JavaScript
-            secure=not settings.DEBUG,  # HTTPS only في production
-            samesite="lax",  # حماية من CSRF
-            max_age=settings.REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60,  # 7 days
-            path="/api/v1/auth"  # فقط لـ auth endpoints
+            httponly=True,
+            secure=not settings.DEBUG,
+            samesite="lax",
+            max_age=settings.REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60,
+            path="/api/v1/auth"
         )
         
-        # Return access token in body
         return {"token": access_token}
     
-    except AuthenticationException as e:
+    except (AuthenticationException, ValidationException) as e:
         raise e
     except Exception as e:
         logger.error(f"Login error: {str(e)}", exc_info=True)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail={"message": "An error occurred during login"}
-        )
+        raise AuthenticationException("An error occurred during login")
 
 
 @router.post(
     "/forgot-password",
     response_model=ForgotPasswordResponse,
     status_code=status.HTTP_200_OK,
+    responses={
+        200: {"description": "Password reset link sent", "model": ForgotPasswordResponse},
+        422: {"description": "Validation errors", "model": ValidationErrorResponse}
+    },
     summary="Forgot Password",
     description="Send password reset link to user's email address."
 )
@@ -103,13 +90,10 @@ async def forgot_password(
         auth_service = AuthService(db)
         result = await auth_service.forgot_password(request)
         return result
-    
     except Exception as e:
         logger.error(f"Forgot password error: {str(e)}", exc_info=True)
         # Always return success to prevent email enumeration
-        return {
-            "message": "Password reset Link have been sent to your email."
-        }
+        return {"message": "Password reset Link have been sent to your email."}
 
 
 @router.post(
@@ -117,9 +101,9 @@ async def forgot_password(
     response_model=ResetPasswordResponse,
     status_code=status.HTTP_200_OK,
     responses={
-        400: {
-            "description": "Invalid or expired token"
-        }
+        200: {"description": "Password reset successful", "model": ResetPasswordResponse},
+        400: {"description": "Invalid or expired token", "model": ErrorResponse},
+        422: {"description": "Validation errors", "model": ValidationErrorResponse}
     },
     summary="Reset Password",
     description="Reset user password using token from email."
@@ -134,17 +118,11 @@ async def reset_password(
         auth_service = AuthService(db)
         result = await auth_service.reset_password(token, request)
         return result
-    
-    except InvalidTokenException as e:
-        raise e
-    except ValidationException as e:
+    except (InvalidTokenException, ValidationException) as e:
         raise e
     except Exception as e:
         logger.error(f"Reset password error: {str(e)}", exc_info=True)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail={"message": "An error occurred during password reset"}
-        )
+        raise InvalidTokenException("An error occurred during password reset")
 
 
 @router.post(
@@ -152,12 +130,8 @@ async def reset_password(
     response_model=TokenResponse,
     status_code=status.HTTP_200_OK,
     responses={
-        200: {
-            "description": "Token refreshed successfully"
-        },
-        401: {
-            "description": "Invalid refresh token"
-        }
+        200: {"description": "Token refreshed successfully", "model": TokenResponse},
+        401: {"description": "Invalid or expired refresh token", "model": ErrorResponse}
     },
     summary="Refresh Access Token",
     description="Get a new access token using refresh token from cookie."
@@ -166,36 +140,31 @@ async def refresh_token(
     refresh_token: Optional[str] = Cookie(None),
     db: AsyncSession = Depends(get_db)
 ):
-    """
-    Refresh token endpoint
+    """Refresh token endpoint"""
     
-    Reads refresh token from httpOnly cookie and returns new access token.
-    """
+    # ✅ استخدم UnauthorizedException
     if not refresh_token:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail={"message": "Invalid"}
-        )
+        raise UnauthorizedException("Refresh token not found")
     
     try:
         auth_service = AuthService(db)
         access_token = await auth_service.refresh_access_token(refresh_token)
         return {"token": access_token}
     
-    except AuthenticationException as e:
+    except (AuthenticationException, UnauthorizedException) as e:
         raise e
     except Exception as e:
         logger.error(f"Refresh token error: {str(e)}", exc_info=True)
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail={"message": "Invalid"}
-        )
+        raise UnauthorizedException("Invalid refresh token")
 
 
-@router.post(
+@router.get(
     "/logout",
     response_model=MessageResponse,
     status_code=status.HTTP_200_OK,
+    responses={
+        200: {"description": "Logout successful", "model": MessageResponse}
+    },
     summary="User Logout",
     description="Logout user and clear refresh token cookie."
 )
@@ -203,15 +172,9 @@ async def logout(
     response: Response,
     db: AsyncSession = Depends(get_db)
 ):
-    """
-    Logout endpoint
-    
-    Clears the refresh token cookie.
-    """
-    # Clear refresh token cookie
+    """Logout endpoint"""
     response.delete_cookie(
         key="refresh_token",
         path="/api/v1/auth"
     )
-    
     return {"message": "Logged out successfully"}
