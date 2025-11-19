@@ -106,7 +106,7 @@ class AuthService:
             return success_message
         
         # Create reset token
-        reset_token = TokenHelper.create_reset_password_token(
+        reset_token =TokenHelper.create_reset_password_token(
             user_id=str(user.id),
             email=user.email
         )
