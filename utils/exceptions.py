@@ -1,3 +1,4 @@
+# exceptions.py
 from fastapi import HTTPException, status
 from typing import Optional, Dict, Any
 
@@ -59,7 +60,7 @@ class NotFoundException(BaseAPIException):
 class BadRequestException(BaseAPIException):
     """Exception for bad requests"""
     def __init__(self, message: str = "Bad request"):
-        super().__Init__(
+        super().__init__(  # ✅ Fixed: was __Init__ (capital I)
             status_code=status.HTTP_400_BAD_REQUEST,
             message=message
         )
