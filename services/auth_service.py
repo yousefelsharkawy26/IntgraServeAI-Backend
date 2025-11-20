@@ -1,7 +1,7 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from typing import Optional, Dict, Tuple
-from datetime import datetime
+from datetime import datetime, timedelta, timezone  # ✅ Add timezone
 from models.user import User
 from utils.schemas.auth_schemas import (
     LoginRequest,
@@ -65,7 +65,7 @@ class AuthService:
             raise AuthenticationException("Invalid email or password")
         
         # Update last login
-        user.last_login = datetime.utcnow()
+        user.last_login = datetime.now(timezone.utc)
         await self.db.commit()
         
         # Create token data

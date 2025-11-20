@@ -213,6 +213,6 @@ class RoleService:
             target_table=target_table,
             target_record_id=target_record_id,
             changed_values=changed_values,
-            created_at=datetime.utcnow()
+            created_at=datetime.now(timezone.utc)
         )
         self.db.add(audit_log)

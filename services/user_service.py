@@ -4,7 +4,7 @@ from sqlalchemy import select, func, or_
 from sqlalchemy.orm import selectinload
 from typing import List, Optional, Tuple
 from uuid import UUID
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone  # ✅ Add timezone
 
 from models.user import User, Role
 from models.audit import AuditLog
@@ -67,8 +67,8 @@ class UserService:
             full_name=user_data.full_name,
             is_active=True,
             email_confirmed=False,
-            created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow()
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc)
         )
         
         # Assign roles
@@ -136,7 +136,7 @@ class UserService:
         if not changed_values:
             return user
         
-        user.updated_at = datetime.utcnow()
+        user.updated_at = datetime.now(timezone.utc)
         
         await self._create_audit_log(
             user_id=updated_by_user_id,
@@ -172,7 +172,7 @@ class UserService:
             raise NotFoundException("User not found")
         
         user.password_hash = get_password_hash(update_data.new_password)
-        user.updated_at = datetime.utcnow()
+        user.updated_at = datetime.now(timezone.utc)
         
         await self._create_audit_log(
             user_id=updated_by_user_id,
@@ -216,7 +216,7 @@ class UserService:
             new_roles.append(role)
         
         user.roles = new_roles
-        user.updated_at = datetime.utcnow()
+        user.updated_at = datetime.now(timezone.utc)
         
         await self._create_audit_log(
             user_id=updated_by_user_id,
@@ -248,7 +248,7 @@ class UserService:
             raise BadRequestException("User is already deactivated")
         
         user.is_active = False
-        user.updated_at = datetime.utcnow()
+        user.updated_at = datetime.now(timezone.utc)
         
         await self._create_audit_log(
             user_id=deactivated_by_user_id,
@@ -272,7 +272,7 @@ class UserService:
             raise BadRequestException("User is already active")
         
         user.is_active = True
-        user.updated_at = datetime.utcnow()
+        user.updated_at = datetime.now(timezone.utc)
         
         await self._create_audit_log(
             user_id=activated_by_user_id,
@@ -318,7 +318,7 @@ class UserService:
         if not changed_values:
             raise BadRequestException("No changes provided")
         
-        user.updated_at = datetime.utcnow()
+        user.updated_at = datetime.now(timezone.utc)
         
         await self._create_audit_log(
             user_id=user_id,
@@ -359,7 +359,7 @@ class UserService:
         
         # Update password
         user.password_hash = get_password_hash(password_data.new_password)
-        user.updated_at = datetime.utcnow()
+        user.updated_at = datetime.now(timezone.utc)
         
         await self._create_audit_log(
             user_id=user_id,
@@ -406,7 +406,7 @@ class UserService:
                     continue
                 
                 user.is_active = False
-                user.updated_at = datetime.utcnow()
+                user.updated_at = datetime.now(timezone.utc)
                 
                 await self._create_audit_log(
                     user_id=deactivated_by_user_id,
@@ -469,7 +469,7 @@ class UserService:
                     continue
                 
                 user.is_active = True
-                user.updated_at = datetime.utcnow()
+                user.updated_at = datetime.now(timezone.utc)
                 
                 await self._create_audit_log(
                     user_id=activated_by_user_id,
@@ -538,14 +538,14 @@ class UserService:
             users_by_role[role.name] = count_result.scalar()
         
         # Recent registrations (last 7 days)
-        seven_days_ago = datetime.utcnow() - timedelta(days=7)
+        seven_days_ago = datetime.now(timezone.utc) - timedelta(days=7)
         recent_reg_result = await self.db.execute(
             select(func.count(User.id)).where(User.created_at >= seven_days_ago)
         )
         recent_registrations = recent_reg_result.scalar()
         
         # Recent logins (last 24 hours)
-        one_day_ago = datetime.utcnow() - timedelta(hours=24)
+        one_day_ago = datetime.now(timezone.utc) - timedelta(hours=24)
         recent_login_result = await self.db.execute(
             select(func.count(User.id)).where(User.last_login >= one_day_ago)
         )
@@ -593,7 +593,7 @@ class UserService:
         
         # Convert to UserActivity
         user_activities = []
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         
         for user in users:
             days_since_login = None
@@ -791,6 +791,6 @@ class UserService:
             target_table=target_table,
             target_record_id=target_record_id,
             changed_values=changed_values,
-            created_at=datetime.utcnow()
+            created_at=datetime.now(timezone.utc)
         )
         self.db.add(audit_log)

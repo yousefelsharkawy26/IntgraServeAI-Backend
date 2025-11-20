@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone  # ✅ Add timezone
 from typing import Optional, Dict, Any
 import jwt  # من PyJWT مباشرة
 from core.config import settings
@@ -18,15 +18,15 @@ class TokenHelper:
         to_encode = data.copy()
         
         if expires_delta:
-            expire = datetime.utcnow() + expires_delta
+            expire = datetime.now(timezone.utc) + expires_delta
         else:
-            expire = datetime.utcnow() + timedelta(
+            expire = datetime.now(timezone.utc) + timedelta(
                 minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES
             )
         
         to_encode.update({
             "exp": expire,
-            "iat": datetime.utcnow(),
+            "iat": datetime.now(timezone.utc),
             "type": "access"
         })
         
@@ -51,15 +51,15 @@ class TokenHelper:
         to_encode = data.copy()
         
         if expires_delta:
-            expire = datetime.utcnow() + expires_delta
+            expire = datetime.now(timezone.utc) + expires_delta
         else:
-            expire = datetime.utcnow() + timedelta(
+            expire = datetime.now(timezone.utc) + timedelta(
                 days=settings.REFRESH_TOKEN_EXPIRE_DAYS
             )
         
         to_encode.update({
             "exp": expire,
-            "iat": datetime.utcnow(),
+            "iat": datetime.now(timezone.utc),
             "type": "refresh"
         })
         
@@ -78,7 +78,7 @@ class TokenHelper:
     @staticmethod
     def create_reset_password_token(user_id: str, email: str) -> str:
         """Create a password reset token"""
-        expire = datetime.utcnow() + timedelta(
+        expire = datetime.now(timezone.utc) + timedelta(
             minutes=settings.RESET_TOKEN_EXPIRE_MINUTES
         )
         
@@ -86,7 +86,7 @@ class TokenHelper:
             "user_id": str(user_id),
             "email": email,
             "exp": expire,
-            "iat": datetime.utcnow(),
+            "iat": datetime.now(timezone.utc),
             "type": "reset_password"
         }
         
