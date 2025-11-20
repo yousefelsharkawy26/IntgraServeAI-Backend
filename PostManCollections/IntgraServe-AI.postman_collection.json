@@ -2,7 +2,7 @@
 	"info": {
 		"_postman_id": "a1b2c3d4-e5f6-4a5b-8c9d-0e1f2a3b4c5d",
 		"name": "IntgraServe-AI - Complete API",
-		"description": "Complete API Collection for IntgraServe-AI Customer Support System",
+		"description": "Complete API Collection for IntgraServe-AI Customer Support System with all endpoints",
 		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
 		"_exporter_id": "12345"
 	},
@@ -53,7 +53,126 @@
 							"host": ["{{base_url}}"],
 							"path": ["api", "v1", "auth", "login"]
 						},
-						"description": "Login with email and password"
+						"description": "Login with email and password. Returns access token and sets refresh token in cookie."
+					}
+				},
+				{
+					"name": "Forgot Password",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code is 200\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"if (pm.response.code === 200) {",
+									"    var jsonData = pm.response.json();",
+									"    pm.test(\"Message received\", function () {",
+									"        pm.expect(jsonData.message).to.include('Password reset');",
+									"    });",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"email\": \"admin@integraserve-ai.com\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/v1/auth/forgot-password",
+							"host": ["{{base_url}}"],
+							"path": ["api", "v1", "auth", "forgot-password"]
+						},
+						"description": "Send password reset link to email"
+					}
+				},
+				{
+					"name": "Reset Password",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Password reset successful\", function () {",
+									"    pm.response.to.have.status(200);",
+									"    var jsonData = pm.response.json();",
+									"    pm.expect(jsonData.message).to.include('Password has been reset successfully');",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"new_password\": \"NewPassword@123\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/v1/auth/reset-password?token={{reset_token}}",
+							"host": ["{{base_url}}"],
+							"path": ["api", "v1", "auth", "reset-password"],
+							"query": [
+								{
+									"key": "token",
+									"value": "{{reset_token}}",
+									"description": "Reset token from email"
+								}
+							]
+						},
+						"description": "Reset password using token from email"
+					}
+				},
+				{
+					"name": "Refresh Token",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"if (pm.response.code === 200) {",
+									"    var jsonData = pm.response.json();",
+									"    pm.environment.set(\"access_token\", jsonData.token);",
+									"    console.log(\"✅ Token refreshed\");",
+									"    ",
+									"    pm.test(\"Token refreshed successfully\", function () {",
+									"        pm.response.to.have.status(200);",
+									"        pm.expect(jsonData.token).to.be.a('string');",
+									"    });",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/v1/auth/refresh",
+							"host": ["{{base_url}}"],
+							"path": ["api", "v1", "auth", "refresh"]
+						},
+						"description": "Refresh access token using refresh token from cookie"
 					}
 				},
 				{
@@ -80,91 +199,18 @@
 							"raw": "{{base_url}}/api/v1/auth/logout",
 							"host": ["{{base_url}}"],
 							"path": ["api", "v1", "auth", "logout"]
-						}
-					}
-				},
-				{
-					"name": "Refresh Token",
-					"event": [
-						{
-							"listen": "test",
-							"script": {
-								"exec": [
-									"if (pm.response.code === 200) {",
-									"    var jsonData = pm.response.json();",
-									"    pm.environment.set(\"access_token\", jsonData.token);",
-									"    console.log(\"✅ Token refreshed\");",
-									"}"
-								],
-								"type": "text/javascript"
-							}
-						}
-					],
-					"request": {
-						"method": "POST",
-						"header": [],
-						"url": {
-							"raw": "{{base_url}}/api/v1/auth/refresh",
-							"host": ["{{base_url}}"],
-							"path": ["api", "v1", "auth", "refresh"]
-						}
-					}
-				},
-				{
-					"name": "Forgot Password",
-					"request": {
-						"method": "POST",
-						"header": [
-							{
-								"key": "Content-Type",
-								"value": "application/json"
-							}
-						],
-						"body": {
-							"mode": "raw",
-							"raw": "{\n  \"email\": \"admin@integraserve-ai.com\"\n}"
 						},
-						"url": {
-							"raw": "{{base_url}}/api/v1/auth/forgot-password",
-							"host": ["{{base_url}}"],
-							"path": ["api", "v1", "auth", "forgot-password"]
-						}
-					}
-				},
-				{
-					"name": "Reset Password",
-					"request": {
-						"method": "POST",
-						"header": [
-							{
-								"key": "Content-Type",
-								"value": "application/json"
-							}
-						],
-						"body": {
-							"mode": "raw",
-							"raw": "{\n  \"new_password\": \"NewPassword@123\"\n}"
-						},
-						"url": {
-							"raw": "{{base_url}}/api/v1/auth/reset-password?token={{reset_token}}",
-							"host": ["{{base_url}}"],
-							"path": ["api", "v1", "auth", "reset-password"],
-							"query": [
-								{
-									"key": "token",
-									"value": "{{reset_token}}"
-								}
-							]
-						}
+						"description": "Logout and clear refresh token cookie"
 					}
 				}
-			]
+			],
+			"description": "Authentication endpoints for login, logout, password reset, and token refresh"
 		},
 		{
-			"name": "Roles (Admin Only)",
+			"name": "My Profile",
 			"item": [
 				{
-					"name": "List All Roles",
+					"name": "Get My Profile",
 					"event": [
 						{
 							"listen": "test",
@@ -177,13 +223,221 @@
 									"if (pm.response.code === 200) {",
 									"    var jsonData = pm.response.json();",
 									"    ",
-									"    pm.test(\"Response is an array\", function () {",
-									"        pm.expect(jsonData).to.be.an('array');",
+									"    pm.test(\"Profile has required fields\", function () {",
+									"        pm.expect(jsonData).to.have.property('id');",
+									"        pm.expect(jsonData).to.have.property('email');",
+									"        pm.expect(jsonData).to.have.property('full_name');",
+									"        pm.expect(jsonData).to.have.property('roles');",
 									"    });",
 									"    ",
-									"    if (jsonData.length > 0) {",
-									"        pm.environment.set(\"role_id\", jsonData[0].id);",
-									"        console.log(\"✅ First role ID saved:\", jsonData[0].id);",
+									"    console.log(\"✅ My profile:\", jsonData.email);",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{access_token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/v1/users/me",
+							"host": ["{{base_url}}"],
+							"path": ["api", "v1", "users", "me"]
+						},
+						"description": "Get current authenticated user's profile"
+					}
+				},
+				{
+					"name": "Update My Profile",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Profile updated successfully\", function () {",
+									"    pm.response.to.have.status(200);",
+									"    var jsonData = pm.response.json();",
+									"    pm.expect(jsonData.message).to.include('Profile updated successfully');",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{access_token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "PATCH",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"email\": \"newemail@example.com\",\n  \"full_name\": \"Updated Name\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/v1/users/me",
+							"host": ["{{base_url}}"],
+							"path": ["api", "v1", "users", "me"]
+						},
+						"description": "Update current user's email and/or full name"
+					}
+				},
+				{
+					"name": "Change My Password",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Password changed successfully\", function () {",
+									"    pm.response.to.have.status(200);",
+									"    var jsonData = pm.response.json();",
+									"    pm.expect(jsonData.message).to.include('Password changed successfully');",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{access_token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "PATCH",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"current_password\": \"Admin@123456\",\n  \"new_password\": \"NewPassword@123\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/v1/users/me/password",
+							"host": ["{{base_url}}"],
+							"path": ["api", "v1", "users", "me", "password"]
+						},
+						"description": "Change current user's password (requires current password)"
+					}
+				},
+				{
+					"name": "Get My Action Logs",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code is 200\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"if (pm.response.code === 200) {",
+									"    var jsonData = pm.response.json();",
+									"    ",
+									"    pm.test(\"Response has pagination\", function () {",
+									"        pm.expect(jsonData).to.have.property('page');",
+									"        pm.expect(jsonData).to.have.property('limit');",
+									"        pm.expect(jsonData).to.have.property('total');",
+									"        pm.expect(jsonData).to.have.property('logs');",
+									"    });",
+									"    ",
+									"    console.log(\"✅ My logs count:\", jsonData.total);",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{access_token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/v1/users/me/logs?page=1&limit=10",
+							"host": ["{{base_url}}"],
+							"path": ["api", "v1", "users", "me", "logs"],
+							"query": [
+								{
+									"key": "page",
+									"value": "1"
+								},
+								{
+									"key": "limit",
+									"value": "10"
+								}
+							]
+						},
+						"description": "Get audit logs for current user's actions"
+					}
+				}
+			],
+			"description": "User profile management endpoints (accessible by any authenticated user)"
+		},
+		{
+			"name": "My Roles",
+			"item": [
+				{
+					"name": "Get My Roles",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code is 200\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"if (pm.response.code === 200) {",
+									"    var jsonData = pm.response.json();",
+									"    ",
+									"    pm.test(\"Response has roles\", function () {",
+									"        pm.expect(jsonData).to.have.property('roles');",
+									"        pm.expect(jsonData.roles).to.be.an('array');",
+									"    });",
+									"    ",
+									"    if (jsonData.roles.length > 0) {",
+									"        console.log(\"✅ My roles:\", jsonData.roles.map(r => r.name).join(', '));",
 									"    }",
 									"}"
 								],
@@ -205,59 +459,15 @@
 						"method": "GET",
 						"header": [],
 						"url": {
-							"raw": "{{base_url}}/api/v1/roles",
+							"raw": "{{base_url}}/api/v1/roles/me",
 							"host": ["{{base_url}}"],
-							"path": ["api", "v1", "roles"]
+							"path": ["api", "v1", "roles", "me"]
 						},
-						"description": "Get all system roles (Admin only)"
-					}
-				},
-				{
-					"name": "Get Role By ID",
-					"event": [
-						{
-							"listen": "test",
-							"script": {
-								"exec": [
-									"pm.test(\"Status code is 200\", function () {",
-									"    pm.response.to.have.status(200);",
-									"});",
-									"",
-									"if (pm.response.code === 200) {",
-									"    var jsonData = pm.response.json();",
-									"    pm.test(\"Role has required fields\", function () {",
-									"        pm.expect(jsonData).to.have.property('id');",
-									"        pm.expect(jsonData).to.have.property('name');",
-									"        pm.expect(jsonData).to.have.property('description');",
-									"    });",
-									"}"
-								],
-								"type": "text/javascript"
-							}
-						}
-					],
-					"request": {
-						"auth": {
-							"type": "bearer",
-							"bearer": [
-								{
-									"key": "token",
-									"value": "{{access_token}}",
-									"type": "string"
-								}
-							]
-						},
-						"method": "GET",
-						"header": [],
-						"url": {
-							"raw": "{{base_url}}/api/v1/roles/{{role_id}}",
-							"host": ["{{base_url}}"],
-							"path": ["api", "v1", "roles", "{{role_id}}"]
-						},
-						"description": "Get specific role by ID (Admin only)"
+						"description": "Get current user's assigned roles"
 					}
 				}
-			]
+			],
+			"description": "Get current user's roles"
 		},
 		{
 			"name": "Users (Admin Only)",
@@ -334,6 +544,8 @@
 									"        pm.environment.set(\"user_id\", jsonData.users[0].id);",
 									"        console.log(\"✅ First user ID saved:\", jsonData.users[0].id);",
 									"    }",
+									"    ",
+									"    console.log(\"Total users:\", jsonData.total);",
 									"}"
 								],
 								"type": "text/javascript"
@@ -369,21 +581,189 @@
 								{
 									"key": "role",
 									"value": "Admin",
-									"disabled": true
+									"disabled": true,
+									"description": "Filter by role name"
 								},
 								{
 									"key": "is_active",
 									"value": "true",
-									"disabled": true
+									"disabled": true,
+									"description": "Filter by active status"
 								},
 								{
 									"key": "email_confirmed",
 									"value": "true",
-									"disabled": true
+									"disabled": true,
+									"description": "Filter by email confirmation"
+								},
+								{
+									"key": "search",
+									"value": "john",
+									"disabled": true,
+									"description": "Search in email and full name"
 								}
 							]
 						},
-						"description": "List users with optional filters (Admin only)"
+						"description": "List users with optional filters and search (Admin only)"
+					}
+				},
+				{
+					"name": "Get User Statistics",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code is 200\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"if (pm.response.code === 200) {",
+									"    var jsonData = pm.response.json();",
+									"    ",
+									"    pm.test(\"Statistics has required fields\", function () {",
+									"        pm.expect(jsonData).to.have.property('total_users');",
+									"        pm.expect(jsonData).to.have.property('active_users');",
+									"        pm.expect(jsonData).to.have.property('users_by_role');",
+									"    });",
+									"    ",
+									"    console.log(\"✅ Total users:\", jsonData.total_users);",
+									"    console.log(\"Active users:\", jsonData.active_users);",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{access_token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/v1/users/statistics",
+							"host": ["{{base_url}}"],
+							"path": ["api", "v1", "users", "statistics"]
+						},
+						"description": "Get comprehensive user statistics (Admin only)"
+					}
+				},
+				{
+					"name": "Get User Activity",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code is 200\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"if (pm.response.code === 200) {",
+									"    var jsonData = pm.response.json();",
+									"    ",
+									"    pm.test(\"Response has pagination\", function () {",
+									"        pm.expect(jsonData).to.have.property('page');",
+									"        pm.expect(jsonData).to.have.property('users');",
+									"    });",
+									"    ",
+									"    console.log(\"✅ Total users with activity:\", jsonData.total);",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{access_token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/v1/users/activity?page=1&limit=10&sort_by=last_login",
+							"host": ["{{base_url}}"],
+							"path": ["api", "v1", "users", "activity"],
+							"query": [
+								{
+									"key": "page",
+									"value": "1"
+								},
+								{
+									"key": "limit",
+									"value": "10"
+								},
+								{
+									"key": "sort_by",
+									"value": "last_login",
+									"description": "Sort by: last_login or created_at"
+								}
+							]
+						},
+						"description": "Get user activity (last login information) (Admin only)"
+					}
+				},
+				{
+					"name": "Get User By ID",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code is 200\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"if (pm.response.code === 200) {",
+									"    var jsonData = pm.response.json();",
+									"    ",
+									"    pm.test(\"User has required fields\", function () {",
+									"        pm.expect(jsonData).to.have.property('id');",
+									"        pm.expect(jsonData).to.have.property('email');",
+									"        pm.expect(jsonData).to.have.property('roles');",
+									"    });",
+									"    ",
+									"    console.log(\"✅ User:\", jsonData.email);",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{access_token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/v1/users/{{user_id}}",
+							"host": ["{{base_url}}"],
+							"path": ["api", "v1", "users", "{{user_id}}"]
+						},
+						"description": "Get user details by ID (Admin only)"
 					}
 				},
 				{
@@ -528,17 +908,27 @@
 					}
 				},
 				{
-					"name": "Deactivate User",
+					"name": "Bulk Activate Users",
 					"event": [
 						{
 							"listen": "test",
 							"script": {
 								"exec": [
-									"pm.test(\"User deactivated successfully\", function () {",
+									"pm.test(\"Bulk operation completed\", function () {",
 									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"if (pm.response.code === 200) {",
 									"    var jsonData = pm.response.json();",
-									"    pm.expect(jsonData.message).to.include('User deactivated successfully');",
-									"});"
+									"    ",
+									"    pm.test(\"Response has results\", function () {",
+									"        pm.expect(jsonData).to.have.property('total_requested');",
+									"        pm.expect(jsonData).to.have.property('successful');",
+									"        pm.expect(jsonData).to.have.property('failed');",
+									"    });",
+									"    ",
+									"    console.log(\"✅ Successful:\", jsonData.successful, \"| Failed:\", jsonData.failed);",
+									"}"
 								],
 								"type": "text/javascript"
 							}
@@ -556,27 +946,46 @@
 							]
 						},
 						"method": "PATCH",
-						"header": [],
-						"url": {
-							"raw": "{{base_url}}/api/v1/users/{{user_id}}/deactivate",
-							"host": ["{{base_url}}"],
-							"path": ["api", "v1", "users", "{{user_id}}", "deactivate"]
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"user_ids\": [\"{{user_id}}\"]\n}"
 						},
-						"description": "Deactivate user account (Admin only)"
+						"url": {
+							"raw": "{{base_url}}/api/v1/users/bulk/activate",
+							"host": ["{{base_url}}"],
+							"path": ["api", "v1", "users", "bulk", "activate"]
+						},
+						"description": "Activate multiple users at once (max 100) (Admin only)"
 					}
 				},
 				{
-					"name": "Activate User",
+					"name": "Bulk Deactivate Users",
 					"event": [
 						{
 							"listen": "test",
 							"script": {
 								"exec": [
-									"pm.test(\"User activated successfully\", function () {",
+									"pm.test(\"Bulk operation completed\", function () {",
 									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"if (pm.response.code === 200) {",
 									"    var jsonData = pm.response.json();",
-									"    pm.expect(jsonData.message).to.include('User activated successfully');",
-									"});"
+									"    ",
+									"    pm.test(\"Response has results\", function () {",
+									"        pm.expect(jsonData).to.have.property('total_requested');",
+									"        pm.expect(jsonData).to.have.property('successful');",
+									"        pm.expect(jsonData).to.have.property('failed');",
+									"    });",
+									"    ",
+									"    console.log(\"✅ Successful:\", jsonData.successful, \"| Failed:\", jsonData.failed);",
+									"}"
 								],
 								"type": "text/javascript"
 							}
@@ -594,17 +1003,26 @@
 							]
 						},
 						"method": "PATCH",
-						"header": [],
-						"url": {
-							"raw": "{{base_url}}/api/v1/users/{{user_id}}/activate",
-							"host": ["{{base_url}}"],
-							"path": ["api", "v1", "users", "{{user_id}}", "activate"]
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"user_ids\": [\"{{user_id}}\"]\n}"
 						},
-						"description": "Activate user account (Admin only)"
+						"url": {
+							"raw": "{{base_url}}/api/v1/users/bulk/deactivate",
+							"host": ["{{base_url}}"],
+							"path": ["api", "v1", "users", "bulk", "deactivate"]
+						},
+						"description": "Deactivate multiple users at once (max 100) (Admin only)"
 					}
 				},
 				{
-					"name": "Get User Logs",
+					"name": "Get User Action Logs",
 					"event": [
 						{
 							"listen": "test",
@@ -616,10 +1034,13 @@
 									"",
 									"if (pm.response.code === 200) {",
 									"    var jsonData = pm.response.json();",
+									"    ",
 									"    pm.test(\"Response has pagination\", function () {",
 									"        pm.expect(jsonData).to.have.property('page');",
 									"        pm.expect(jsonData).to.have.property('logs');",
 									"    });",
+									"    ",
+									"    console.log(\"✅ Total logs:\", jsonData.total);",
 									"}"
 								],
 								"type": "text/javascript"
@@ -654,16 +1075,293 @@
 								}
 							]
 						},
-						"description": "Get audit logs for a user (Admin only)"
+						"description": "Get audit logs for actions performed BY a specific user (Admin only)"
 					}
 				}
-			]
+			],
+			"description": "User management endpoints (Admin only)"
+		},
+		{
+			"name": "Roles (Admin Only)",
+			"item": [
+				{
+					"name": "List All Roles",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code is 200\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"if (pm.response.code === 200) {",
+									"    var jsonData = pm.response.json();",
+									"    ",
+									"    pm.test(\"Response is an array\", function () {",
+									"        pm.expect(jsonData).to.be.an('array');",
+									"    });",
+									"    ",
+									"    if (jsonData.length > 0) {",
+									"        pm.environment.set(\"role_id\", jsonData[0].id);",
+									"        console.log(\"✅ First role ID saved:\", jsonData[0].id);",
+									"        console.log(\"Total roles:\", jsonData.length);",
+									"    }",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{access_token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/v1/roles",
+							"host": ["{{base_url}}"],
+							"path": ["api", "v1", "roles"]
+						},
+						"description": "Get all system roles (Admin only)"
+					}
+				},
+				{
+					"name": "Get Role Statistics",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code is 200\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"if (pm.response.code === 200) {",
+									"    var jsonData = pm.response.json();",
+									"    ",
+									"    pm.test(\"Statistics has required fields\", function () {",
+									"        pm.expect(jsonData).to.have.property('total_roles');",
+									"        pm.expect(jsonData).to.have.property('roles');",
+									"    });",
+									"    ",
+									"    console.log(\"✅ Total roles:\", jsonData.total_roles);",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{access_token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/v1/roles/statistics",
+							"host": ["{{base_url}}"],
+							"path": ["api", "v1", "roles", "statistics"]
+						},
+						"description": "Get role statistics with user counts (Admin only)"
+					}
+				},
+				{
+					"name": "Get Role By ID",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code is 200\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"if (pm.response.code === 200) {",
+									"    var jsonData = pm.response.json();",
+									"    ",
+									"    pm.test(\"Role has required fields\", function () {",
+									"        pm.expect(jsonData).to.have.property('id');",
+									"        pm.expect(jsonData).to.have.property('name');",
+									"        pm.expect(jsonData).to.have.property('description');",
+									"    });",
+									"    ",
+									"    console.log(\"✅ Role:\", jsonData.name);",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{access_token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/v1/roles/{{role_id}}",
+							"host": ["{{base_url}}"],
+							"path": ["api", "v1", "roles", "{{role_id}}"]
+						},
+						"description": "Get specific role by ID (Admin only)"
+					}
+				},
+				{
+					"name": "Get Users By Role",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code is 200\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"if (pm.response.code === 200) {",
+									"    var jsonData = pm.response.json();",
+									"    ",
+									"    pm.test(\"Response has pagination\", function () {",
+									"        pm.expect(jsonData).to.have.property('page');",
+									"        pm.expect(jsonData).to.have.property('users');",
+									"    });",
+									"    ",
+									"    console.log(\"✅ Total users with this role:\", jsonData.total);",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{access_token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/v1/roles/{{role_id}}/users?page=1&limit=10",
+							"host": ["{{base_url}}"],
+							"path": ["api", "v1", "roles", "{{role_id}}", "users"],
+							"query": [
+								{
+									"key": "page",
+									"value": "1"
+								},
+								{
+									"key": "limit",
+									"value": "10"
+								}
+							]
+						},
+						"description": "Get all users with a specific role (Admin only)"
+					}
+				},
+				{
+					"name": "Get User Roles By User ID",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code is 200\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"if (pm.response.code === 200) {",
+									"    var jsonData = pm.response.json();",
+									"    ",
+									"    pm.test(\"Response has roles\", function () {",
+									"        pm.expect(jsonData).to.have.property('roles');",
+									"        pm.expect(jsonData.roles).to.be.an('array');",
+									"    });",
+									"    ",
+									"    console.log(\"✅ User roles:\", jsonData.roles.map(r => r.name).join(', '));",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{access_token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/v1/roles/user/{{user_id}}",
+							"host": ["{{base_url}}"],
+							"path": ["api", "v1", "roles", "user", "{{user_id}}"]
+						},
+						"description": "Get roles for a specific user (Admin only)"
+					}
+				}
+			],
+			"description": "Role management endpoints (Admin only)"
 		},
 		{
 			"name": "Health Check",
 			"item": [
 				{
 					"name": "Root",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code is 200\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"if (pm.response.code === 200) {",
+									"    var jsonData = pm.response.json();",
+									"    pm.test(\"Response has success field\", function () {",
+									"        pm.expect(jsonData).to.have.property('success');",
+									"        pm.expect(jsonData.success).to.be.true;",
+									"    });",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
 					"request": {
 						"method": "GET",
 						"header": [],
@@ -671,11 +1369,32 @@
 							"raw": "{{base_url}}/",
 							"host": ["{{base_url}}"],
 							"path": [""]
-						}
+						},
+						"description": "Root endpoint - API welcome"
 					}
 				},
 				{
 					"name": "Health",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code is 200\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"if (pm.response.code === 200) {",
+									"    var jsonData = pm.response.json();",
+									"    pm.test(\"Health check passed\", function () {",
+									"        pm.expect(jsonData.status).to.eql('healthy');",
+									"    });",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
 					"request": {
 						"method": "GET",
 						"header": [],
@@ -683,10 +1402,12 @@
 							"raw": "{{base_url}}/health",
 							"host": ["{{base_url}}"],
 							"path": ["health"]
-						}
+						},
+						"description": "Health check endpoint"
 					}
 				}
-			]
+			],
+			"description": "Health check and status endpoints"
 		}
 	],
 	"variable": [
