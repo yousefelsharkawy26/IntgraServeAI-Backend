@@ -223,20 +223,45 @@ async def get_external_ticket_messages(
     response_model=TicketListResponse,
     status_code=status.HTTP_200_OK,
     summary="Get My Tickets",
-    description="Retrieves tickets assigned to the current user with filters and sorting."
+    description="""
+    Retrieves tickets assigned to current user with automatic filtering by role:
+    
+    - **Admin**: All tickets assigned to you
+    - **Tech User**: Only TECH tickets assigned to you
+    - **Support User**: Only SUPPORT tickets assigned to you
+    
+    Available filters: status, priority, sort_by, search
+    """
 )
 async def get_my_tickets(
     page: int = Query(1, ge=1, description="Page number"),
     limit: int = Query(10, ge=1, le=100, description="Items per page"),
     status: Optional[TicketStatus] = Query(None, description="Filter by status"),
     priority: Optional[TicketPriority] = Query(None, description="Filter by priority"),
-    ticket_type: Optional[TicketType] = Query(None, description="Filter by ticket type"),
     sort_by: str = Query("created_at", description="Sort by: created_at, updated_at, priority, status, title"),
     search: Optional[str] = Query(None, min_length=2, description="Search in title, description, customer name/email"),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
-    """Get my tickets with filters and sorting"""
+    """
+    Get my tickets with automatic role-based filtering
+    
+    **Role-based filtering**:
+    - Admin: All assigned tickets
+    - Tech User: Only TECH tickets
+    - Support User: Only SUPPORT tickets
+    
+    **Available filters**:
+    - status: open, in_progress, pending, escalated, resolved, closed, canceled
+    - priority: low, medium, high, urgent
+    - sort_by: created_at (default), updated_at, priority, status, title
+    - search: Search in title, description, customer name/email (min 2 chars)
+    
+    **Examples**:
+    - `/api/v1/tickets/my-tickets?page=1&limit=10`
+    - `/api/v1/tickets/my-tickets?status=open&priority=high`
+    - `/api/v1/tickets/my-tickets?sort_by=priority&search=login`
+    """
     ticket_service = TicketService(db)
     user_roles = [role.name for role in current_user.roles]
     
@@ -247,7 +272,6 @@ async def get_my_tickets(
         limit=limit,
         status=status,
         priority=priority,
-        ticket_type=ticket_type,
         sort_by=sort_by,
         search=search
     )
@@ -265,19 +289,43 @@ async def get_my_tickets(
     response_model=TicketListResponse,
     status_code=status.HTTP_200_OK,
     summary="Get Unassigned Tickets",
-    description="Retrieves unassigned tickets with filters and sorting."
+    description="""
+    Retrieves unassigned tickets with automatic filtering by role:
+    
+    - **Admin**: All unassigned tickets
+    - **Tech User**: Only TECH unassigned tickets
+    - **Support User**: Only SUPPORT unassigned tickets
+    
+    Available filters: priority, sort_by, search
+    """
 )
 async def get_unassigned_tickets(
     page: int = Query(1, ge=1, description="Page number"),
     limit: int = Query(10, ge=1, le=100, description="Items per page"),
     priority: Optional[TicketPriority] = Query(None, description="Filter by priority"),
-    ticket_type: Optional[TicketType] = Query(None, description="Filter by ticket type"),
     sort_by: str = Query("priority", description="Sort by: priority, created_at, title"),
     search: Optional[str] = Query(None, min_length=2, description="Search in title, description, customer name"),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
-    """Get unassigned tickets with filters and sorting"""
+    """
+    Get unassigned tickets with automatic role-based filtering
+    
+    **Role-based filtering**:
+    - Admin: All unassigned tickets
+    - Tech User: Only TECH unassigned tickets
+    - Support User: Only SUPPORT unassigned tickets
+    
+    **Available filters**:
+    - priority: low, medium, high, urgent
+    - sort_by: priority (default), created_at, title
+    - search: Search in title, description, customer name (min 2 chars)
+    
+    **Examples**:
+    - `/api/v1/tickets/unassigned?page=1&limit=10`
+    - `/api/v1/tickets/unassigned?priority=urgent`
+    - `/api/v1/tickets/unassigned?sort_by=created_at&search=network`
+    """
     ticket_service = TicketService(db)
     user_roles = [role.name for role in current_user.roles]
     
@@ -286,7 +334,6 @@ async def get_unassigned_tickets(
         page=page,
         limit=limit,
         priority=priority,
-        ticket_type=ticket_type,
         sort_by=sort_by,
         search=search
     )

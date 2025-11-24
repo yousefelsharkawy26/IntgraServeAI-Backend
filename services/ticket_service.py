@@ -76,7 +76,6 @@ class TicketService:
         limit: int = 10,
         status: Optional[TicketStatus] = None,
         priority: Optional[TicketPriority] = None,
-        ticket_type: Optional[TicketType] = None,
         sort_by: str = "created_at",
         search: Optional[str] = None
     ) -> Tuple[List[TicketResponse], int]:
@@ -89,12 +88,27 @@ class TicketService:
             Ticket.is_active == True
         )
         
-        # Filter by ticket type based on role
+        # ✅ Filter by ticket type based on roles (supports multiple roles)
         if "Admin" not in user_roles:
-            if "Tech User" in user_roles:
+            has_tech = "Tech User" in user_roles
+            has_support = "Support User" in user_roles
+            
+            if has_tech and has_support:
+                # User has both roles - show TECH and SUPPORT tickets
+                query = query.where(
+                    or_(
+                        Ticket.ticket_type == TicketType.TECH,
+                        Ticket.ticket_type == TicketType.SUPPORT
+                    )
+                )
+            elif has_tech:
+                # User has Tech User role only - show TECH tickets
                 query = query.where(Ticket.ticket_type == TicketType.TECH)
-            elif "Support User" in user_roles:
+            elif has_support:
+                # User has Support User role only - show SUPPORT tickets
                 query = query.where(Ticket.ticket_type == TicketType.SUPPORT)
+            # else: user has no relevant roles - show nothing (empty result)
+        # else: Admin can see all types
         
         # Apply filters
         if status:
@@ -102,9 +116,6 @@ class TicketService:
         
         if priority:
             query = query.where(Ticket.priority == priority)
-        
-        if ticket_type:
-            query = query.where(Ticket.ticket_type == ticket_type)
         
         # Apply search
         if search:
@@ -125,17 +136,25 @@ class TicketService:
         )
         
         if "Admin" not in user_roles:
-            if "Tech User" in user_roles:
+            has_tech = "Tech User" in user_roles
+            has_support = "Support User" in user_roles
+            
+            if has_tech and has_support:
+                count_query = count_query.where(
+                    or_(
+                        Ticket.ticket_type == TicketType.TECH,
+                        Ticket.ticket_type == TicketType.SUPPORT
+                    )
+                )
+            elif has_tech:
                 count_query = count_query.where(Ticket.ticket_type == TicketType.TECH)
-            elif "Support User" in user_roles:
+            elif has_support:
                 count_query = count_query.where(Ticket.ticket_type == TicketType.SUPPORT)
         
         if status:
             count_query = count_query.where(Ticket.status == status)
         if priority:
             count_query = count_query.where(Ticket.priority == priority)
-        if ticket_type:
-            count_query = count_query.where(Ticket.ticket_type == ticket_type)
         if search:
             search_term = f"%{search}%"
             count_query = count_query.where(
@@ -181,7 +200,6 @@ class TicketService:
         page: int = 1,
         limit: int = 10,
         priority: Optional[TicketPriority] = None,
-        ticket_type: Optional[TicketType] = None,
         sort_by: str = "priority",
         search: Optional[str] = None
     ) -> Tuple[List[TicketResponse], int]:
@@ -193,19 +211,31 @@ class TicketService:
             Ticket.is_active == True
         )
         
-        # Filter by ticket type based on role
+        # ✅ Filter by ticket type based on roles (supports multiple roles)
         if "Admin" not in user_roles:
-            if "Tech User" in user_roles:
+            has_tech = "Tech User" in user_roles
+            has_support = "Support User" in user_roles
+            
+            if has_tech and has_support:
+                # User has both roles - show TECH and SUPPORT tickets
+                query = query.where(
+                    or_(
+                        Ticket.ticket_type == TicketType.TECH,
+                        Ticket.ticket_type == TicketType.SUPPORT
+                    )
+                )
+            elif has_tech:
+                # User has Tech User role only - show TECH tickets
                 query = query.where(Ticket.ticket_type == TicketType.TECH)
-            elif "Support User" in user_roles:
+            elif has_support:
+                # User has Support User role only - show SUPPORT tickets
                 query = query.where(Ticket.ticket_type == TicketType.SUPPORT)
+            # else: user has no relevant roles - show nothing
+        # else: Admin can see all types
         
         # Apply filters
         if priority:
             query = query.where(Ticket.priority == priority)
-        
-        if ticket_type:
-            query = query.where(Ticket.ticket_type == ticket_type)
         
         # Apply search
         if search:
@@ -226,15 +256,23 @@ class TicketService:
         )
         
         if "Admin" not in user_roles:
-            if "Tech User" in user_roles:
+            has_tech = "Tech User" in user_roles
+            has_support = "Support User" in user_roles
+            
+            if has_tech and has_support:
+                count_query = count_query.where(
+                    or_(
+                        Ticket.ticket_type == TicketType.TECH,
+                        Ticket.ticket_type == TicketType.SUPPORT
+                    )
+                )
+            elif has_tech:
                 count_query = count_query.where(Ticket.ticket_type == TicketType.TECH)
-            elif "Support User" in user_roles:
+            elif has_support:
                 count_query = count_query.where(Ticket.ticket_type == TicketType.SUPPORT)
         
         if priority:
             count_query = count_query.where(Ticket.priority == priority)
-        if ticket_type:
-            count_query = count_query.where(Ticket.ticket_type == ticket_type)
         if search:
             search_term = f"%{search}%"
             count_query = count_query.where(
@@ -390,12 +428,23 @@ class TicketService:
         if not ticket:
             raise NotFoundException("Ticket not found")
         
-        # Validate access based on role
+        # ✅ Validate access based on roles (supports multiple roles)
         if "Admin" not in user_roles:
-            if "Tech User" in user_roles and ticket.ticket_type != TicketType.TECH:
-                raise BadRequestException("Tech Users can only view TECH tickets")
-            elif "Support User" in user_roles and ticket.ticket_type != TicketType.SUPPORT:
-                raise BadRequestException("Support Users can only view SUPPORT tickets")
+            has_tech = "Tech User" in user_roles
+            has_support = "Support User" in user_roles
+            
+            # Check if user can access this ticket type
+            can_access = False
+            
+            if ticket.ticket_type == TicketType.TECH and has_tech:
+                can_access = True
+            elif ticket.ticket_type == TicketType.SUPPORT and has_support:
+                can_access = True
+            
+            if not can_access:
+                raise BadRequestException(
+                    f"You don't have permission to view {ticket.ticket_type.value.upper()} tickets"
+                )
         
         return ticket
     
@@ -455,12 +504,22 @@ class TicketService:
         if ticket.status != TicketStatus.OPEN:
             raise BadRequestException(f"Cannot assign ticket with status: {ticket.status.value}")
         
-        # Validate ticket type matches user role
+        # ✅ Validate ticket type matches user roles (supports multiple roles)
         if "Admin" not in user_roles:
-            if "Tech User" in user_roles and ticket.ticket_type != TicketType.TECH:
-                raise BadRequestException("Tech Users can only assign TECH tickets")
-            elif "Support User" in user_roles and ticket.ticket_type != TicketType.SUPPORT:
-                raise BadRequestException("Support Users can only assign SUPPORT tickets")
+            has_tech = "Tech User" in user_roles
+            has_support = "Support User" in user_roles
+            
+            can_assign = False
+            
+            if ticket.ticket_type == TicketType.TECH and has_tech:
+                can_assign = True
+            elif ticket.ticket_type == TicketType.SUPPORT and has_support:
+                can_assign = True
+            
+            if not can_assign:
+                raise BadRequestException(
+                    f"You don't have permission to assign {ticket.ticket_type.value.upper()} tickets"
+                )
         
         # Assign ticket
         now = datetime.now(timezone.utc)
