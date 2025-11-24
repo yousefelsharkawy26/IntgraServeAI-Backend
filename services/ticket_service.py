@@ -94,7 +94,6 @@ class TicketService:
             has_support = "Support User" in user_roles
             
             if has_tech and has_support:
-                # User has both roles - show TECH and SUPPORT tickets
                 query = query.where(
                     or_(
                         Ticket.ticket_type == TicketType.TECH,
@@ -102,13 +101,9 @@ class TicketService:
                     )
                 )
             elif has_tech:
-                # User has Tech User role only - show TECH tickets
                 query = query.where(Ticket.ticket_type == TicketType.TECH)
             elif has_support:
-                # User has Support User role only - show SUPPORT tickets
                 query = query.where(Ticket.ticket_type == TicketType.SUPPORT)
-            # else: user has no relevant roles - show nothing (empty result)
-        # else: Admin can see all types
         
         # Apply filters
         if status:
@@ -217,7 +212,6 @@ class TicketService:
             has_support = "Support User" in user_roles
             
             if has_tech and has_support:
-                # User has both roles - show TECH and SUPPORT tickets
                 query = query.where(
                     or_(
                         Ticket.ticket_type == TicketType.TECH,
@@ -225,13 +219,9 @@ class TicketService:
                     )
                 )
             elif has_tech:
-                # User has Tech User role only - show TECH tickets
                 query = query.where(Ticket.ticket_type == TicketType.TECH)
             elif has_support:
-                # User has Support User role only - show SUPPORT tickets
                 query = query.where(Ticket.ticket_type == TicketType.SUPPORT)
-            # else: user has no relevant roles - show nothing
-        # else: Admin can see all types
         
         # Apply filters
         if priority:
@@ -636,17 +626,21 @@ class TicketService:
         
         return ticket
     
-    # ==================== Reassign Ticket (by Role) ====================
+    # ==================== Reassign Ticket (by Role ID) - بدون قيود ====================
     
     async def reassign_ticket_by_role(
         self,
         ticket_id: UUID,
-        target_role: str,
+        target_role_id: UUID,
         reason: Optional[str],
         current_user_id: UUID,
         user_roles: List[str]
     ) -> Ticket:
-        """Reassign ticket to a role (escalate)"""
+        """
+        Reassign ticket to a role (escalate)
+        
+        ✅ يمكن تحويل أي تذكرة لأي role بدون قيود
+        """
         # Get ticket
         ticket = await self.get_ticket_details(ticket_id, current_user_id, user_roles)
         
@@ -662,14 +656,14 @@ class TicketService:
             if ticket.assignee_id != current_user_id:
                 raise BadRequestException("You can only reassign tickets assigned to you")
         
-        # Validate target role exists
+        # Get role by ID
         result = await self.db.execute(
-            select(Role).where(Role.name == target_role)
+            select(Role).where(Role.id == target_role_id)
         )
         role = result.scalar_one_or_none()
         
         if not role:
-            raise NotFoundException(f"Role '{target_role}' not found")
+            raise NotFoundException(f"Role not found")
         
         # Find active users with this role
         result = await self.db.execute(
@@ -682,13 +676,9 @@ class TicketService:
         new_assignee = result.scalar_one_or_none()
         
         if not new_assignee:
-            raise NotFoundException(f"No active users found with role '{target_role}'")
+            raise NotFoundException(f"No active users found with role '{role.name}'")
         
-        # Validate ticket type matches role
-        if target_role == "Tech User" and ticket.ticket_type != TicketType.TECH:
-            raise BadRequestException("Cannot assign SUPPORT tickets to Tech User role")
-        elif target_role == "Support User" and ticket.ticket_type != TicketType.SUPPORT:
-            raise BadRequestException("Cannot assign TECH tickets to Support User role")
+        # ✅ لا يوجد validation على نوع التذكرة - يمكن تحويل أي تذكرة لأي role
         
         # Update ticket
         old_assignee_id = ticket.assignee_id
@@ -710,8 +700,10 @@ class TicketService:
                     "old": str(old_assignee_id) if old_assignee_id else None, 
                     "new": str(new_assignee.id)
                 },
-                "target_role": target_role,
+                "target_role_id": str(target_role_id),
+                "target_role_name": role.name,
                 "new_assignee_name": new_assignee.full_name,
+                "ticket_type": ticket.ticket_type.value,
                 "status": {"old": ticket.status.value, "new": TicketStatus.ESCALATED.value},
                 "reason": reason
             }
@@ -720,7 +712,11 @@ class TicketService:
         await self.db.commit()
         await self.db.refresh(ticket)
         
-        logger.info(f"Ticket {ticket.id} reassigned to role '{target_role}' - assigned to {new_assignee.full_name}")
+        logger.info(
+            f"Ticket {ticket.id} ({ticket.ticket_type.value.upper()}) "
+            f"reassigned to role '{role.name}' (ID: {role.id}) - "
+            f"assigned to {new_assignee.full_name}"
+        )
         
         return ticket
     
@@ -1004,7 +1000,8 @@ class TicketService:
         ticket_id: UUID,
         customer_email: str,
         customer_name: str,
-        message_text: str
+        message_text: str,
+        attachments: Optional[List[dict]] = None
     ) -> TicketMessage:
         """Create message from external customer (no auth required)"""
         # Get ticket
@@ -1036,7 +1033,7 @@ class TicketService:
             sender_email=customer_email,
             message_text=message_text,
             is_internal_note=False,
-            attachments=None,
+            attachments=attachments,
             created_at=now
         )
         
@@ -1292,7 +1289,7 @@ class TicketService:
         result = await self.db.execute(query)
         tickets = result.scalars().all()
         
-        # Convert to simplified response - keep proper types (not strings)
+        # Convert to simplified response
         simplified_tickets = []
         for ticket in tickets:
             simplified_tickets.append({

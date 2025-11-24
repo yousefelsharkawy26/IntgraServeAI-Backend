@@ -1,8 +1,8 @@
 # apis/v1/tickets.py
-from fastapi import APIRouter, Depends, status, Query, UploadFile, File
+from fastapi import APIRouter, Depends, status, Query, UploadFile, File, Form
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid import UUID
-from typing import Optional
+from typing import Optional, List
 from pydantic import EmailStr
 
 from core.database import get_db
@@ -21,6 +21,7 @@ from utils.schemas.ticket_schemas import (
     TicketMessageResponse,
     TicketMessagesListResponse,
     ExternalMessageCreate,
+    ExternalMessageWithFilesResponse,
     FileUploadResponse,
     TicketSummaryResponse,
     TicketSummaryListResponse,
@@ -43,32 +44,6 @@ logger = logging.getLogger(__name__)
     "/external/create",
     response_model=ExternalTicketCreateResponse,
     status_code=status.HTTP_201_CREATED,
-    responses={
-        201: {
-            "description": "Ticket created successfully",
-            "content": {
-                "application/json": {
-                    "example": {
-                        "message": "Ticket created successfully. We will reply as soon as possible.",
-                        "ticket_id": "123e4567-e89b-12d3-a456-426614174000"
-                    }
-                }
-            }
-        },
-        422: {
-            "description": "Validation errors",
-            "content": {
-                "application/json": {
-                    "example": {
-                        "errors": {
-                            "customer_email": "Invalid email format",
-                            "priority": "Field required"
-                        }
-                    }
-                }
-            }
-        }
-    },
     summary="Create Ticket from External System",
     description="Creates a support ticket from an external system. No authentication required."
 )
@@ -86,8 +61,6 @@ async def create_external_ticket(
     - HIGH: 4 hours
     - MEDIUM: 12 hours
     - LOW: 24 hours
-    
-    **Returns**: Success message and ticket_id
     """
     ticket_service = TicketService(db)
     ticket = await ticket_service.create_external_ticket(ticket_data)
@@ -102,17 +75,6 @@ async def create_external_ticket(
     "/external/{ticket_id}/messages",
     response_model=MessageResponse,
     status_code=status.HTTP_201_CREATED,
-    responses={
-        201: {
-            "description": "Message added successfully"
-        },
-        404: {
-            "description": "Ticket not found"
-        },
-        400: {
-            "description": "Cannot add message"
-        }
-    },
     summary="Add Message from External Customer",
     description="Add a message to ticket from external customer. No authentication required."
 )
@@ -121,21 +83,104 @@ async def create_external_message(
     message_data: ExternalMessageCreate,
     db: AsyncSession = Depends(get_db)
 ):
-    """
-    Add message from external customer (no auth)
-    
-    **Public endpoint - No authentication required**
-    """
+    """Add message from external customer (no auth)"""
     ticket_service = TicketService(db)
     
     await ticket_service.create_external_message(
         ticket_id=ticket_id,
         customer_email=message_data.customer_email,
         customer_name=message_data.customer_name,
-        message_text=message_data.message_text
+        message_text=message_data.message_text,
+        attachments=None
     )
     
     return MessageResponse(message="Message added successfully")
+
+
+@router.post(
+    "/external/{ticket_id}/messages-with-files",
+    response_model=ExternalMessageWithFilesResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Add Message with Files from External Customer",
+    description="Add a message with file attachments from external customer. No authentication required."
+)
+async def create_external_message_with_files(
+    ticket_id: UUID,
+    customer_email: EmailStr = Form(..., description="Customer email"),
+    customer_name: str = Form(..., min_length=2, max_length=255, description="Customer name"),
+    message_text: str = Form(..., min_length=1, max_length=5000, description="Message text"),
+    files: List[UploadFile] = File(None, description="Attachments (optional, max 5 files, 10 MB each)"),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Add message with files from external customer
+    
+    **File Upload Rules**:
+    - Max 5 files per message
+    - Max 10 MB per file
+    - Allowed: jpg, jpeg, png, gif, pdf, doc, docx, txt, csv, xlsx
+    """
+    import os
+    import shutil
+    from pathlib import Path
+    import time
+    
+    ticket_service = TicketService(db)
+    
+    # Validate and save files
+    attachments = []
+    
+    if files:
+        if len(files) > 5:
+            raise BadRequestException("Maximum 5 files allowed per message")
+        
+        upload_dir = Path("uploads/tickets") / str(ticket_id) / "messages"
+        upload_dir.mkdir(parents=True, exist_ok=True)
+        
+        allowed_extensions = {'.jpg', '.jpeg', '.png', '.gif', '.pdf', '.doc', '.docx', '.txt', '.csv', '.xlsx'}
+        MAX_FILE_SIZE = 10 * 1024 * 1024
+        
+        for file in files:
+            file.file.seek(0, 2)
+            file_size = file.file.tell()
+            file.file.seek(0)
+            
+            if file_size > MAX_FILE_SIZE:
+                raise BadRequestException(f"File '{file.filename}' exceeds 10 MB limit")
+            
+            file_extension = Path(file.filename).suffix.lower()
+            
+            if file_extension not in allowed_extensions:
+                raise BadRequestException(f"File type {file_extension} not allowed")
+            
+            timestamp = int(time.time() * 1000)
+            safe_filename = f"{timestamp}_{file.filename}"
+            file_path = upload_dir / safe_filename
+            
+            with file_path.open("wb") as buffer:
+                shutil.copyfileobj(file.file, buffer)
+            
+            attachments.append({
+                "filename": file.filename,
+                "file_path": str(file_path),
+                "file_size": file_size,
+                "content_type": file.content_type or "application/octet-stream"
+            })
+            
+            logger.info(f"File uploaded: {file_path}")
+    
+    await ticket_service.create_external_message(
+        ticket_id=ticket_id,
+        customer_email=customer_email,
+        customer_name=customer_name,
+        message_text=message_text.strip(),
+        attachments=attachments if attachments else None
+    )
+    
+    return ExternalMessageWithFilesResponse(
+        message="Message added successfully",
+        attachments=attachments if attachments else None
+    )
 
 
 @router.get(
@@ -177,9 +222,9 @@ async def get_external_customer_tickets(
 )
 async def get_external_ticket_messages(
     ticket_id: UUID,
-    customer_email: EmailStr = Query(..., description="Customer email (must match ticket owner)"),
-    page: int = Query(1, ge=1, description="Page number"),
-    limit: int = Query(20, ge=1, le=100, description="Items per page"),
+    customer_email: EmailStr = Query(..., description="Customer email"),
+    page: int = Query(1, ge=1),
+    limit: int = Query(20, ge=1, le=100),
     db: AsyncSession = Depends(get_db)
 ):
     """Get ticket messages for external customer (no auth)"""
@@ -192,7 +237,6 @@ async def get_external_ticket_messages(
         limit=limit
     )
     
-    # Convert to response
     message_responses = []
     for msg in messages:
         msg_dict = {
@@ -223,45 +267,19 @@ async def get_external_ticket_messages(
     response_model=TicketListResponse,
     status_code=status.HTTP_200_OK,
     summary="Get My Tickets",
-    description="""
-    Retrieves tickets assigned to current user with automatic filtering by role:
-    
-    - **Admin**: All tickets assigned to you
-    - **Tech User**: Only TECH tickets assigned to you
-    - **Support User**: Only SUPPORT tickets assigned to you
-    
-    Available filters: status, priority, sort_by, search
-    """
+    description="Retrieves tickets assigned to current user with automatic role-based filtering."
 )
 async def get_my_tickets(
-    page: int = Query(1, ge=1, description="Page number"),
-    limit: int = Query(10, ge=1, le=100, description="Items per page"),
-    status: Optional[TicketStatus] = Query(None, description="Filter by status"),
-    priority: Optional[TicketPriority] = Query(None, description="Filter by priority"),
-    sort_by: str = Query("created_at", description="Sort by: created_at, updated_at, priority, status, title"),
-    search: Optional[str] = Query(None, min_length=2, description="Search in title, description, customer name/email"),
+    page: int = Query(1, ge=1),
+    limit: int = Query(10, ge=1, le=100),
+    status: Optional[TicketStatus] = Query(None),
+    priority: Optional[TicketPriority] = Query(None),
+    sort_by: str = Query("created_at"),
+    search: Optional[str] = Query(None, min_length=2),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
-    """
-    Get my tickets with automatic role-based filtering
-    
-    **Role-based filtering**:
-    - Admin: All assigned tickets
-    - Tech User: Only TECH tickets
-    - Support User: Only SUPPORT tickets
-    
-    **Available filters**:
-    - status: open, in_progress, pending, escalated, resolved, closed, canceled
-    - priority: low, medium, high, urgent
-    - sort_by: created_at (default), updated_at, priority, status, title
-    - search: Search in title, description, customer name/email (min 2 chars)
-    
-    **Examples**:
-    - `/api/v1/tickets/my-tickets?page=1&limit=10`
-    - `/api/v1/tickets/my-tickets?status=open&priority=high`
-    - `/api/v1/tickets/my-tickets?sort_by=priority&search=login`
-    """
+    """Get my tickets with automatic role-based filtering"""
     ticket_service = TicketService(db)
     user_roles = [role.name for role in current_user.roles]
     
@@ -289,43 +307,18 @@ async def get_my_tickets(
     response_model=TicketListResponse,
     status_code=status.HTTP_200_OK,
     summary="Get Unassigned Tickets",
-    description="""
-    Retrieves unassigned tickets with automatic filtering by role:
-    
-    - **Admin**: All unassigned tickets
-    - **Tech User**: Only TECH unassigned tickets
-    - **Support User**: Only SUPPORT unassigned tickets
-    
-    Available filters: priority, sort_by, search
-    """
+    description="Retrieves unassigned tickets with automatic role-based filtering."
 )
 async def get_unassigned_tickets(
-    page: int = Query(1, ge=1, description="Page number"),
-    limit: int = Query(10, ge=1, le=100, description="Items per page"),
-    priority: Optional[TicketPriority] = Query(None, description="Filter by priority"),
-    sort_by: str = Query("priority", description="Sort by: priority, created_at, title"),
-    search: Optional[str] = Query(None, min_length=2, description="Search in title, description, customer name"),
+    page: int = Query(1, ge=1),
+    limit: int = Query(10, ge=1, le=100),
+    priority: Optional[TicketPriority] = Query(None),
+    sort_by: str = Query("priority"),
+    search: Optional[str] = Query(None, min_length=2),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
-    """
-    Get unassigned tickets with automatic role-based filtering
-    
-    **Role-based filtering**:
-    - Admin: All unassigned tickets
-    - Tech User: Only TECH unassigned tickets
-    - Support User: Only SUPPORT unassigned tickets
-    
-    **Available filters**:
-    - priority: low, medium, high, urgent
-    - sort_by: priority (default), created_at, title
-    - search: Search in title, description, customer name (min 2 chars)
-    
-    **Examples**:
-    - `/api/v1/tickets/unassigned?page=1&limit=10`
-    - `/api/v1/tickets/unassigned?priority=urgent`
-    - `/api/v1/tickets/unassigned?sort_by=created_at&search=network`
-    """
+    """Get unassigned tickets with automatic role-based filtering"""
     ticket_service = TicketService(db)
     user_roles = [role.name for role in current_user.roles]
     
@@ -350,23 +343,19 @@ async def get_unassigned_tickets(
     "/admin/all",
     response_model=TicketListResponse,
     status_code=status.HTTP_200_OK,
-    responses={
-        200: {"description": "Tickets retrieved successfully"},
-        401: {"description": "Unauthorized - Admin only"}
-    },
     summary="Get All Tickets (Admin)",
     description="Retrieves all tickets with filters. Admin only."
 )
 async def get_all_tickets_admin(
-    page: int = Query(1, ge=1, description="Page number"),
-    limit: int = Query(10, ge=1, le=100, description="Items per page"),
-    status: Optional[TicketStatus] = Query(None, description="Filter by status"),
-    priority: Optional[TicketPriority] = Query(None, description="Filter by priority"),
-    ticket_type: Optional[TicketType] = Query(None, description="Filter by ticket type"),
-    is_closed: Optional[bool] = Query(None, description="Filter by closed status"),
-    assignee_id: Optional[UUID] = Query(None, description="Filter by assignee user ID"),
-    sort_by: str = Query("created_at", description="Sort by: created_at, updated_at, priority, status, title, customer_name"),
-    search: Optional[str] = Query(None, min_length=2, description="Search in title, description, customer details"),
+    page: int = Query(1, ge=1),
+    limit: int = Query(10, ge=1, le=100),
+    status: Optional[TicketStatus] = Query(None),
+    priority: Optional[TicketPriority] = Query(None),
+    ticket_type: Optional[TicketType] = Query(None),
+    is_closed: Optional[bool] = Query(None),
+    assignee_id: Optional[UUID] = Query(None),
+    sort_by: str = Query("created_at"),
+    search: Optional[str] = Query(None, min_length=2),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_admin)
 ):
@@ -397,11 +386,6 @@ async def get_all_tickets_admin(
     "/{ticket_id}",
     response_model=TicketResponse,
     status_code=status.HTTP_200_OK,
-    responses={
-        200: {"description": "Ticket details retrieved successfully"},
-        404: {"description": "Ticket not found"},
-        400: {"description": "Cannot access this ticket type"}
-    },
     summary="Get Ticket Details",
     description="Retrieves detailed information about a specific ticket."
 )
@@ -420,7 +404,6 @@ async def get_ticket_details(
         user_roles=user_roles
     )
     
-    # Convert to response
     ticket_dict = {
         "id": ticket.id,
         "ticket_type": ticket.ticket_type,
@@ -462,7 +445,6 @@ async def get_ticket_details_admin(
     
     ticket = await ticket_service.get_ticket_details_admin(ticket_id)
     
-    # Convert to detailed response with ALL fields
     ticket_dict = {
         "id": ticket.id,
         "ticket_type": ticket.ticket_type,
@@ -498,12 +480,6 @@ async def get_ticket_details_admin(
     "/{ticket_id}/assign-to-me",
     response_model=MessageResponse,
     status_code=status.HTTP_200_OK,
-    responses={
-        200: {"description": "Ticket assigned successfully"},
-        404: {"description": "Ticket not found"},
-        400: {"description": "Cannot assign this ticket"},
-        409: {"description": "Ticket already assigned"}
-    },
     summary="Assign Ticket to Me",
     description="Self-assign an unassigned ticket to the current user."
 )
@@ -529,11 +505,6 @@ async def assign_ticket_to_me(
     "/{ticket_id}/status",
     response_model=MessageResponse,
     status_code=status.HTTP_200_OK,
-    responses={
-        200: {"description": "Status updated successfully"},
-        404: {"description": "Ticket not found"},
-        400: {"description": "Invalid status transition"}
-    },
     summary="Update Ticket Status",
     description="Update the status of a ticket."
 )
@@ -562,13 +533,8 @@ async def update_ticket_status(
     "/{ticket_id}/reassign",
     response_model=MessageResponse,
     status_code=status.HTTP_200_OK,
-    responses={
-        200: {"description": "Ticket reassigned successfully"},
-        404: {"description": "Ticket or role not found"},
-        400: {"description": "Cannot reassign this ticket"}
-    },
     summary="Reassign Ticket to Role",
-    description="Reassign a ticket to a specific role (escalate)."
+    description="Reassign a ticket to a specific role by role ID (escalate)."
 )
 async def reassign_ticket(
     ticket_id: UUID,
@@ -576,13 +542,13 @@ async def reassign_ticket(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
-    """Reassign ticket to a role"""
+    """Reassign ticket to a role by role ID"""
     ticket_service = TicketService(db)
     user_roles = [role.name for role in current_user.roles]
     
     await ticket_service.reassign_ticket_by_role(
         ticket_id=ticket_id,
-        target_role=reassign_data.role,
+        target_role_id=reassign_data.role_id,
         reason=reassign_data.reason,
         current_user_id=current_user.id,
         user_roles=user_roles
@@ -595,11 +561,6 @@ async def reassign_ticket(
     "/{ticket_id}/resolve",
     response_model=MessageResponse,
     status_code=status.HTTP_200_OK,
-    responses={
-        200: {"description": "Ticket resolved successfully"},
-        404: {"description": "Ticket not found"},
-        400: {"description": "Cannot resolve this ticket"}
-    },
     summary="Resolve Ticket",
     description="Mark a ticket as resolved with resolution notes."
 )
@@ -627,11 +588,6 @@ async def resolve_ticket(
     "/{ticket_id}/cancel",
     response_model=MessageResponse,
     status_code=status.HTTP_200_OK,
-    responses={
-        200: {"description": "Ticket canceled successfully"},
-        404: {"description": "Ticket not found"},
-        400: {"description": "Cannot cancel this ticket"}
-    },
     summary="Cancel Ticket",
     description="Cancel a ticket (duplicate, invalid, etc.)."
 )
@@ -659,11 +615,6 @@ async def cancel_ticket(
     "/{ticket_id}/close",
     response_model=MessageResponse,
     status_code=status.HTTP_200_OK,
-    responses={
-        200: {"description": "Ticket closed successfully"},
-        404: {"description": "Ticket not found"},
-        400: {"description": "Only resolved tickets can be closed"}
-    },
     summary="Close Ticket",
     description="Close a resolved ticket (final state)."
 )
@@ -696,8 +647,8 @@ async def close_ticket(
 )
 async def get_ticket_messages(
     ticket_id: UUID,
-    page: int = Query(1, ge=1, description="Page number"),
-    limit: int = Query(20, ge=1, le=100, description="Items per page"),
+    page: int = Query(1, ge=1),
+    limit: int = Query(20, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
@@ -713,7 +664,6 @@ async def get_ticket_messages(
         limit=limit
     )
     
-    # Convert to response
     message_responses = []
     for msg in messages:
         msg_dict = {
@@ -741,11 +691,6 @@ async def get_ticket_messages(
     "/{ticket_id}/messages",
     response_model=MessageResponse,
     status_code=status.HTTP_201_CREATED,
-    responses={
-        201: {"description": "Message added successfully"},
-        404: {"description": "Ticket not found"},
-        400: {"description": "Cannot add message"}
-    },
     summary="Add Message to Ticket",
     description="Add a new message/note to a ticket (authenticated users)."
 )
@@ -799,23 +744,19 @@ async def delete_ticket_admin(
     "/admin/all-summary",
     response_model=TicketSummaryListResponse,
     status_code=status.HTTP_200_OK,
-    responses={
-        200: {"description": "Ticket summaries retrieved successfully"},
-        401: {"description": "Unauthorized - Admin only"}
-    },
     summary="Get All Tickets Summary (Admin)",
     description="Get simplified list of all tickets. Admin only."
 )
 async def get_all_tickets_summary_admin(
-    page: int = Query(1, ge=1, description="Page number"),
-    limit: int = Query(10, ge=1, le=100, description="Items per page"),
-    status: Optional[TicketStatus] = Query(None, description="Filter by status"),
-    priority: Optional[TicketPriority] = Query(None, description="Filter by priority"),
-    ticket_type: Optional[TicketType] = Query(None, description="Filter by ticket type"),
-    is_closed: Optional[bool] = Query(None, description="Filter by closed status"),
-    assignee_id: Optional[UUID] = Query(None, description="Filter by assignee user ID"),
-    sort_by: str = Query("created_at", description="Sort by: created_at, updated_at, priority, status, title, customer_name"),
-    search: Optional[str] = Query(None, min_length=2, description="Search in all fields"),
+    page: int = Query(1, ge=1),
+    limit: int = Query(10, ge=1, le=100),
+    status: Optional[TicketStatus] = Query(None),
+    priority: Optional[TicketPriority] = Query(None),
+    ticket_type: Optional[TicketType] = Query(None),
+    is_closed: Optional[bool] = Query(None),
+    assignee_id: Optional[UUID] = Query(None),
+    sort_by: str = Query("created_at"),
+    search: Optional[str] = Query(None, min_length=2),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_admin)
 ):
@@ -834,7 +775,6 @@ async def get_all_tickets_summary_admin(
         search=search
     )
     
-    # Convert dict to TicketSummaryResponse
     ticket_responses = [TicketSummaryResponse(**t) for t in tickets]
     
     return TicketSummaryListResponse(
@@ -849,10 +789,6 @@ async def get_all_tickets_summary_admin(
     "/admin/statistics",
     response_model=TicketStatistics,
     status_code=status.HTTP_200_OK,
-    responses={
-        200: {"description": "Statistics retrieved successfully"},
-        401: {"description": "Unauthorized - Admin only"}
-    },
     summary="Get Ticket Statistics (Admin)",
     description="Get comprehensive ticket statistics. Admin only."
 )
@@ -888,7 +824,6 @@ async def upload_ticket_file(
     import shutil
     from pathlib import Path
     
-    # Validate file size (10 MB)
     MAX_FILE_SIZE = 10 * 1024 * 1024
     file.file.seek(0, 2)
     file_size = file.file.tell()
@@ -897,14 +832,12 @@ async def upload_ticket_file(
     if file_size > MAX_FILE_SIZE:
         raise BadRequestException("File size exceeds 10 MB limit")
     
-    # Validate file type
     allowed_extensions = {'.jpg', '.jpeg', '.png', '.gif', '.pdf', '.doc', '.docx', '.txt', '.csv', '.xlsx'}
     file_extension = Path(file.filename).suffix.lower()
     
     if file_extension not in allowed_extensions:
         raise BadRequestException(f"File type {file_extension} not allowed")
     
-    # Verify ticket exists and user can access it
     ticket_service = TicketService(db)
     user_roles = [role.name for role in current_user.roles]
     
@@ -914,21 +847,18 @@ async def upload_ticket_file(
         user_roles=user_roles
     )
     
-    # Create upload directory
     upload_dir = Path("uploads/tickets") / str(ticket_id)
     upload_dir.mkdir(parents=True, exist_ok=True)
     
-    # Generate unique filename
     import time
     timestamp = int(time.time())
     safe_filename = f"{timestamp}_{file.filename}"
     file_path = upload_dir / safe_filename
     
-    # Save file
     with file_path.open("wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
     
-    logger.info(f"File uploaded: {file_path} for ticket {ticket_id}")
+    logger.info(f"File uploaded: {file_path}")
     
     return FileUploadResponse(
         filename=file.filename,
