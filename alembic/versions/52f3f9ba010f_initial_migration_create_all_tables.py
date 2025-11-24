@@ -1,8 +1,8 @@
 """initial_migration_create_all_tables
 
-Revision ID: 12a423fcb6ae
+Revision ID: 52f3f9ba010f
 Revises: 
-Create Date: 2025-11-24 13:30:24.401154
+Create Date: 2025-11-24 17:31:33.155117
 
 """
 from typing import Sequence, Union
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
-revision: str = '12a423fcb6ae'
+revision: str = '52f3f9ba010f'
 down_revision: Union[str, Sequence[str], None] = None
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
@@ -162,7 +162,6 @@ def upgrade() -> None:
     sa.Column('ai_confidence', sa.Numeric(precision=5, scale=2), nullable=True),
     sa.Column('status', sa.Enum('OPEN', 'IN_PROGRESS', 'PENDING', 'RESOLVED', 'CLOSED', 'ESCALATED', 'CANCELED', name='ticketstatus'), nullable=False),
     sa.Column('priority', sa.Enum('LOW', 'MEDIUM', 'HIGH', 'URGENT', name='ticketpriority'), nullable=False),
-    sa.Column('category', sa.Enum('TECHNICAL', 'BILLING', 'GENERAL', 'COMPLAINT', 'FEATURE_REQUEST', name='ticketcategory'), nullable=True),
     sa.Column('sla_due_date', sa.DateTime(timezone=True), nullable=True),
     sa.Column('is_closed', sa.Boolean(), nullable=False),
     sa.Column('is_active', sa.Boolean(), nullable=False),
@@ -182,7 +181,6 @@ def upgrade() -> None:
     sa.PrimaryKeyConstraint('id')
     )
     op.create_index(op.f('ix_tickets_assignee_id'), 'tickets', ['assignee_id'], unique=False)
-    op.create_index(op.f('ix_tickets_category'), 'tickets', ['category'], unique=False)
     op.create_index(op.f('ix_tickets_customer_email'), 'tickets', ['customer_email'], unique=False)
     op.create_index(op.f('ix_tickets_external_customer_id'), 'tickets', ['external_customer_id'], unique=False)
     op.create_index(op.f('ix_tickets_id'), 'tickets', ['id'], unique=True)
@@ -231,6 +229,8 @@ def upgrade() -> None:
     op.create_table('ticket_messages',
     sa.Column('ticket_id', sa.UUID(), nullable=False),
     sa.Column('sender_type', sa.Enum('CUSTOMER', 'AGENT', 'SYSTEM', 'AI', name='sendertype'), nullable=False),
+    sa.Column('sender_name', sa.String(length=255), nullable=True),
+    sa.Column('sender_email', sa.String(length=255), nullable=True),
     sa.Column('message_text', sa.Text(), nullable=False),
     sa.Column('is_internal_note', sa.Boolean(), nullable=False),
     sa.Column('attachments', postgresql.JSONB(astext_type=sa.Text()), nullable=True),
@@ -294,7 +294,6 @@ def downgrade() -> None:
     op.drop_index(op.f('ix_tickets_id'), table_name='tickets')
     op.drop_index(op.f('ix_tickets_external_customer_id'), table_name='tickets')
     op.drop_index(op.f('ix_tickets_customer_email'), table_name='tickets')
-    op.drop_index(op.f('ix_tickets_category'), table_name='tickets')
     op.drop_index(op.f('ix_tickets_assignee_id'), table_name='tickets')
     op.drop_table('tickets')
     op.drop_index(op.f('ix_chat_messages_id'), table_name='chat_messages')

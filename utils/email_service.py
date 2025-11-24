@@ -1,3 +1,4 @@
+# utils/email_service.py
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
@@ -302,6 +303,279 @@ class EmailService:
         html_content = template.render(
             app_name=settings.APP_NAME,
             user_name=user_name
+        )
+        
+        return self.send_email(
+            to_email=to_email,
+            subject=subject,
+            html_content=html_content
+        )
+    
+    # ==================== Ticket Email Notifications ====================
+    
+    def send_ticket_status_update(
+        self,
+        to_email: str,
+        customer_name: str,
+        ticket_id: str,
+        ticket_title: str,
+        old_status: str,
+        new_status: str,
+        updated_by: str
+    ) -> bool:
+        """Send email when ticket status changes"""
+        subject = f"Ticket Status Updated - {ticket_title}"
+        
+        html_template = """
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <style>
+                body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+                .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+                .header { background-color: #4CAF50; color: white; padding: 20px; text-align: center; }
+                .content { padding: 20px; background-color: #f9f9f9; }
+                .status-box { background-color: #e3f2fd; border-left: 4px solid #2196F3; padding: 12px; margin: 20px 0; }
+                .footer { text-align: center; padding: 20px; font-size: 12px; color: #666; }
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <div class="header">
+                    <h1>{{ app_name }}</h1>
+                </div>
+                <div class="content">
+                    <h2>Ticket Status Updated</h2>
+                    <p>Hello {{ customer_name }},</p>
+                    <p>Your support ticket has been updated:</p>
+                    
+                    <div class="status-box">
+                        <strong>Ticket ID:</strong> {{ ticket_id }}<br>
+                        <strong>Title:</strong> {{ ticket_title }}<br>
+                        <strong>Previous Status:</strong> {{ old_status }}<br>
+                        <strong>New Status:</strong> {{ new_status }}<br>
+                        <strong>Updated By:</strong> {{ updated_by }}
+                    </div>
+                    
+                    <p>You can track your ticket status or add messages by contacting our support team.</p>
+                </div>
+                <div class="footer">
+                    <p>© 2025 {{ app_name }}. All rights reserved.</p>
+                </div>
+            </div>
+        </body>
+        </html>
+        """
+        
+        template = Template(html_template)
+        html_content = template.render(
+            app_name=settings.APP_NAME,
+            customer_name=customer_name,
+            ticket_id=ticket_id,
+            ticket_title=ticket_title,
+            old_status=old_status,
+            new_status=new_status,
+            updated_by=updated_by
+        )
+        
+        return self.send_email(
+            to_email=to_email,
+            subject=subject,
+            html_content=html_content
+        )
+    
+    def send_ticket_assigned(
+        self,
+        to_email: str,
+        customer_name: str,
+        ticket_id: str,
+        ticket_title: str,
+        assignee_name: str
+    ) -> bool:
+        """Send email when ticket is assigned"""
+        subject = f"Your Ticket Has Been Assigned - {ticket_title}"
+        
+        html_template = """
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <style>
+                body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+                .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+                .header { background-color: #4CAF50; color: white; padding: 20px; text-align: center; }
+                .content { padding: 20px; background-color: #f9f9f9; }
+                .info-box { background-color: #d4edda; border-left: 4px solid #28a745; padding: 12px; margin: 20px 0; }
+                .footer { text-align: center; padding: 20px; font-size: 12px; color: #666; }
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <div class="header">
+                    <h1>{{ app_name }}</h1>
+                </div>
+                <div class="content">
+                    <h2>Ticket Assigned</h2>
+                    <p>Hello {{ customer_name }},</p>
+                    <p>Good news! Your support ticket has been assigned to one of our team members:</p>
+                    
+                    <div class="info-box">
+                        <strong>Ticket ID:</strong> {{ ticket_id }}<br>
+                        <strong>Title:</strong> {{ ticket_title }}<br>
+                        <strong>Assigned To:</strong> {{ assignee_name }}
+                    </div>
+                    
+                    <p>Our team is now working on your issue and will update you soon.</p>
+                </div>
+                <div class="footer">
+                    <p>© 2025 {{ app_name }}. All rights reserved.</p>
+                </div>
+            </div>
+        </body>
+        </html>
+        """
+        
+        template = Template(html_template)
+        html_content = template.render(
+            app_name=settings.APP_NAME,
+            customer_name=customer_name,
+            ticket_id=ticket_id,
+            ticket_title=ticket_title,
+            assignee_name=assignee_name
+        )
+        
+        return self.send_email(
+            to_email=to_email,
+            subject=subject,
+            html_content=html_content
+        )
+    
+    def send_ticket_resolved(
+        self,
+        to_email: str,
+        customer_name: str,
+        ticket_id: str,
+        ticket_title: str,
+        resolution_notes: str
+    ) -> bool:
+        """Send email when ticket is resolved"""
+        subject = f"Your Ticket Has Been Resolved - {ticket_title}"
+        
+        html_template = """
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <style>
+                body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+                .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+                .header { background-color: #4CAF50; color: white; padding: 20px; text-align: center; }
+                .content { padding: 20px; background-color: #f9f9f9; }
+                .success-box { background-color: #d4edda; border-left: 4px solid #28a745; padding: 12px; margin: 20px 0; }
+                .footer { text-align: center; padding: 20px; font-size: 12px; color: #666; }
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <div class="header">
+                    <h1>{{ app_name }}</h1>
+                </div>
+                <div class="content">
+                    <h2>✓ Ticket Resolved</h2>
+                    <p>Hello {{ customer_name }},</p>
+                    <p>Great news! Your support ticket has been resolved:</p>
+                    
+                    <div class="success-box">
+                        <strong>Ticket ID:</strong> {{ ticket_id }}<br>
+                        <strong>Title:</strong> {{ ticket_title }}<br><br>
+                        <strong>Resolution:</strong><br>
+                        {{ resolution_notes }}
+                    </div>
+                    
+                    <p>If you have any further questions or if the issue persists, please don't hesitate to contact us.</p>
+                </div>
+                <div class="footer">
+                    <p>© 2025 {{ app_name }}. All rights reserved.</p>
+                </div>
+            </div>
+        </body>
+        </html>
+        """
+        
+        template = Template(html_template)
+        html_content = template.render(
+            app_name=settings.APP_NAME,
+            customer_name=customer_name,
+            ticket_id=ticket_id,
+            ticket_title=ticket_title,
+            resolution_notes=resolution_notes
+        )
+        
+        return self.send_email(
+            to_email=to_email,
+            subject=subject,
+            html_content=html_content
+        )
+    
+    def send_new_message_notification(
+        self,
+        to_email: str,
+        customer_name: str,
+        ticket_id: str,
+        ticket_title: str,
+        sender_name: str,
+        message_text: str
+    ) -> bool:
+        """Send email when new message is added to ticket"""
+        subject = f"New Message on Your Ticket - {ticket_title}"
+        
+        html_template = """
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <style>
+                body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+                .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+                .header { background-color: #4CAF50; color: white; padding: 20px; text-align: center; }
+                .content { padding: 20px; background-color: #f9f9f9; }
+                .message-box { background-color: #fff3cd; border-left: 4px solid #ffc107; padding: 12px; margin: 20px 0; }
+                .footer { text-align: center; padding: 20px; font-size: 12px; color: #666; }
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <div class="header">
+                    <h1>{{ app_name }}</h1>
+                </div>
+                <div class="content">
+                    <h2>New Message</h2>
+                    <p>Hello {{ customer_name }},</p>
+                    <p>You have a new message on your support ticket:</p>
+                    
+                    <div class="message-box">
+                        <strong>Ticket ID:</strong> {{ ticket_id }}<br>
+                        <strong>Title:</strong> {{ ticket_title }}<br>
+                        <strong>From:</strong> {{ sender_name }}<br><br>
+                        <strong>Message:</strong><br>
+                        {{ message_text }}
+                    </div>
+                    
+                    <p>You can reply to this message by contacting our support team.</p>
+                </div>
+                <div class="footer">
+                    <p>© 2025 {{ app_name }}. All rights reserved.</p>
+                </div>
+            </div>
+        </body>
+        </html>
+        """
+        
+        template = Template(html_template)
+        html_content = template.render(
+            app_name=settings.APP_NAME,
+            customer_name=customer_name,
+            ticket_id=ticket_id,
+            ticket_title=ticket_title,
+            sender_name=sender_name,
+            message_text=message_text[:500]
         )
         
         return self.send_email(

@@ -19,8 +19,8 @@ class TicketStatus(str, enum.Enum):
     PENDING = "pending"
     RESOLVED = "resolved"
     CLOSED = "closed"
-    ESCALATED = "escalated"  # New
-    CANCELED = "canceled"    # New
+    ESCALATED = "escalated"
+    CANCELED = "canceled"
 
 
 class TicketPriority(str, enum.Enum):
@@ -29,15 +29,6 @@ class TicketPriority(str, enum.Enum):
     MEDIUM = "medium"
     HIGH = "high"
     URGENT = "urgent"
-
-
-class TicketCategory(str, enum.Enum):
-    """Ticket Category Enum"""
-    TECHNICAL = "technical"
-    BILLING = "billing"
-    GENERAL = "general"
-    COMPLAINT = "complaint"
-    FEATURE_REQUEST = "feature_request"
 
 
 class SenderType(str, enum.Enum):
@@ -52,7 +43,7 @@ class Ticket(BaseModel, TimestampMixin):
     """Tickets table"""
     __tablename__ = 'tickets'
     
-    # Ticket Type (NEW)
+    # Ticket Type
     ticket_type = Column(
         SQLEnum(TicketType), 
         nullable=False, 
@@ -76,7 +67,6 @@ class Ticket(BaseModel, TimestampMixin):
     # Status and Priority
     status = Column(SQLEnum(TicketStatus), default=TicketStatus.OPEN, nullable=False, index=True)
     priority = Column(SQLEnum(TicketPriority), default=TicketPriority.MEDIUM, nullable=False, index=True)
-    category = Column(SQLEnum(TicketCategory), nullable=True, index=True)
     
     # SLA and Closure
     sla_due_date = Column(DateTime(timezone=True), nullable=True, index=True)
@@ -84,12 +74,12 @@ class Ticket(BaseModel, TimestampMixin):
     is_active = Column(Boolean, default=True, nullable=False, index=True)
     closed_at = Column(DateTime(timezone=True), nullable=True)
     
-    # Resolution and Cancellation (NEW)
+    # Resolution and Cancellation
     resolution_notes = Column(Text, nullable=True)
     cancellation_reason = Column(String(255), nullable=True)
     escalation_reason = Column(Text, nullable=True)
     
-    # Assignment Tracking (NEW)
+    # Assignment Tracking
     assigned_at = Column(DateTime(timezone=True), nullable=True)
     resolved_at = Column(DateTime(timezone=True), nullable=True)
     
@@ -112,9 +102,11 @@ class TicketMessage(BaseModel):
     
     ticket_id = Column(UUID(as_uuid=True), ForeignKey('tickets.id', ondelete='CASCADE'), nullable=False, index=True)
     sender_type = Column(SQLEnum(SenderType), nullable=False)
+    sender_name = Column(String(255), nullable=True)
+    sender_email = Column(String(255), nullable=True)
     message_text = Column(Text, nullable=False)
     is_internal_note = Column(Boolean, default=False, nullable=False)
-    attachments = Column(JSONB, nullable=True)  # Store as JSON array
+    attachments = Column(JSONB, nullable=True)
     
     # Relationships
     ticket = relationship('Ticket', back_populates='messages')
