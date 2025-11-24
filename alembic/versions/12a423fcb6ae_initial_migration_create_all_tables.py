@@ -1,8 +1,8 @@
-"""Initial migration - create all tables
+"""initial_migration_create_all_tables
 
-Revision ID: 34d490a5e9de
+Revision ID: 12a423fcb6ae
 Revises: 
-Create Date: 2025-11-19 21:04:18.649326
+Create Date: 2025-11-24 13:30:24.401154
 
 """
 from typing import Sequence, Union
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
-revision: str = '34d490a5e9de'
+revision: str = '12a423fcb6ae'
 down_revision: Union[str, Sequence[str], None] = None
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
@@ -152,25 +152,33 @@ def upgrade() -> None:
     op.create_index(op.f('ix_chat_messages_chat_conversation_id'), 'chat_messages', ['chat_conversation_id'], unique=False)
     op.create_index(op.f('ix_chat_messages_id'), 'chat_messages', ['id'], unique=True)
     op.create_table('tickets',
+    sa.Column('ticket_type', sa.Enum('TECH', 'SUPPORT', name='tickettype'), nullable=False),
     sa.Column('title', sa.String(length=500), nullable=False),
     sa.Column('description', sa.Text(), nullable=False),
     sa.Column('external_customer_id', sa.String(length=255), nullable=True),
     sa.Column('customer_email', sa.String(length=255), nullable=False),
     sa.Column('customer_name', sa.String(length=255), nullable=False),
     sa.Column('ai_auto_created', sa.Boolean(), nullable=False),
-    sa.Column('status', sa.Enum('OPEN', 'IN_PROGRESS', 'PENDING', 'RESOLVED', 'CLOSED', name='ticketstatus'), nullable=False),
+    sa.Column('ai_confidence', sa.Numeric(precision=5, scale=2), nullable=True),
+    sa.Column('status', sa.Enum('OPEN', 'IN_PROGRESS', 'PENDING', 'RESOLVED', 'CLOSED', 'ESCALATED', 'CANCELED', name='ticketstatus'), nullable=False),
     sa.Column('priority', sa.Enum('LOW', 'MEDIUM', 'HIGH', 'URGENT', name='ticketpriority'), nullable=False),
     sa.Column('category', sa.Enum('TECHNICAL', 'BILLING', 'GENERAL', 'COMPLAINT', 'FEATURE_REQUEST', name='ticketcategory'), nullable=True),
-    sa.Column('ai_confidence', sa.Numeric(precision=5, scale=2), nullable=True),
     sa.Column('sla_due_date', sa.DateTime(timezone=True), nullable=True),
     sa.Column('is_closed', sa.Boolean(), nullable=False),
     sa.Column('is_active', sa.Boolean(), nullable=False),
     sa.Column('closed_at', sa.DateTime(timezone=True), nullable=True),
+    sa.Column('resolution_notes', sa.Text(), nullable=True),
+    sa.Column('cancellation_reason', sa.String(length=255), nullable=True),
+    sa.Column('escalation_reason', sa.Text(), nullable=True),
+    sa.Column('assigned_at', sa.DateTime(timezone=True), nullable=True),
+    sa.Column('resolved_at', sa.DateTime(timezone=True), nullable=True),
     sa.Column('assignee_id', sa.UUID(), nullable=True),
+    sa.Column('previous_assignee_id', sa.UUID(), nullable=True),
     sa.Column('id', sa.UUID(), nullable=False),
     sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
     sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
     sa.ForeignKeyConstraint(['assignee_id'], ['users.id'], ondelete='SET NULL'),
+    sa.ForeignKeyConstraint(['previous_assignee_id'], ['users.id'], ondelete='SET NULL'),
     sa.PrimaryKeyConstraint('id')
     )
     op.create_index(op.f('ix_tickets_assignee_id'), 'tickets', ['assignee_id'], unique=False)
@@ -183,6 +191,7 @@ def upgrade() -> None:
     op.create_index(op.f('ix_tickets_priority'), 'tickets', ['priority'], unique=False)
     op.create_index(op.f('ix_tickets_sla_due_date'), 'tickets', ['sla_due_date'], unique=False)
     op.create_index(op.f('ix_tickets_status'), 'tickets', ['status'], unique=False)
+    op.create_index(op.f('ix_tickets_ticket_type'), 'tickets', ['ticket_type'], unique=False)
     op.create_index(op.f('ix_tickets_title'), 'tickets', ['title'], unique=False)
     op.create_table('user_roles',
     sa.Column('user_id', sa.UUID(), nullable=False),
@@ -233,7 +242,6 @@ def upgrade() -> None:
     op.create_index(op.f('ix_ticket_messages_id'), 'ticket_messages', ['id'], unique=True)
     op.create_index(op.f('ix_ticket_messages_ticket_id'), 'ticket_messages', ['ticket_id'], unique=False)
     op.create_table('action_execution_logs',
-    sa.Column('chat_conversation_id', sa.UUID(), nullable=False),
     sa.Column('system_action_id', sa.UUID(), nullable=False),
     sa.Column('external_customer_id', sa.String(length=255), nullable=True),
     sa.Column('request_payload', postgresql.JSONB(astext_type=sa.Text()), nullable=True),
@@ -241,6 +249,7 @@ def upgrade() -> None:
     sa.Column('status', sa.String(length=50), nullable=False),
     sa.Column('error_message', sa.Text(), nullable=True),
     sa.Column('execution_time_ms', sa.Integer(), nullable=True),
+    sa.Column('chat_conversation_id', sa.UUID(), nullable=True),
     sa.Column('id', sa.UUID(), nullable=False),
     sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
     sa.ForeignKeyConstraint(['chat_conversation_id'], ['chat_conversations.id'], ondelete='CASCADE'),
@@ -276,6 +285,7 @@ def downgrade() -> None:
     op.drop_table('system_actions')
     op.drop_table('user_roles')
     op.drop_index(op.f('ix_tickets_title'), table_name='tickets')
+    op.drop_index(op.f('ix_tickets_ticket_type'), table_name='tickets')
     op.drop_index(op.f('ix_tickets_status'), table_name='tickets')
     op.drop_index(op.f('ix_tickets_sla_due_date'), table_name='tickets')
     op.drop_index(op.f('ix_tickets_priority'), table_name='tickets')

@@ -1,6 +1,15 @@
+# models/__init__.py
 from models.base import BaseModel
 from models.user import User, Role, user_roles
-from models.ticket import Ticket, TicketMessage, TicketStatus, TicketPriority, TicketCategory, SenderType
+from models.ticket import (
+    Ticket, 
+    TicketMessage, 
+    TicketStatus, 
+    TicketPriority, 
+    TicketCategory, 
+    TicketType,  # NEW
+    SenderType
+)
 from models.chat import ChatConversation, ChatMessage, AgentRating, ResponseType
 from models.system import SystemType, ActionProtocol, SystemAction, ActionExecutionLog
 from models.auth import ApiAuthType, ApiAuthentication
@@ -21,6 +30,7 @@ __all__ = [
     'TicketStatus',
     'TicketPriority',
     'TicketCategory',
+    'TicketType',  # NEW
     'SenderType',
     
     # Chat models

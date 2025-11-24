@@ -1,8 +1,8 @@
 """seed_initial_data
 
-Revision ID: 3abacda9ae13
-Revises: 34d490a5e9de
-Create Date: 2025-11-19 21:11:16.227074
+Revision ID: d5e1f8c5280c
+Revises: 12a423fcb6ae
+Create Date: 2025-11-24 13:32:01.823988
 
 """
 from alembic import op
@@ -13,8 +13,8 @@ from datetime import datetime
 import uuid
 
 # revision identifiers, used by Alembic.
-revision = '3abacda9ae13'
-down_revision = '34d490a5e9de'
+revision = 'd5e1f8c5280c'
+down_revision = '12a423fcb6ae'
 branch_labels = None
 depends_on = None
 
