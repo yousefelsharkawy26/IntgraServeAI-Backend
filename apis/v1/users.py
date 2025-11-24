@@ -98,22 +98,47 @@ async def change_my_password(
     return {"message": "Password changed successfully"}
 
 
+# ✅ My Logs with Sort & Search
 @router.get(
     "/me/logs",
     response_model=UserLogsResponse,
     status_code=status.HTTP_200_OK,
     summary="Get My Action Logs",
-    description="Retrieves audit logs for actions performed by the current authenticated user."
+    description="Retrieves audit logs for actions performed by the current user with search and sorting."
 )
 async def get_my_logs(
     page: int = Query(1, ge=1, description="Page number"),
     limit: int = Query(10, ge=1, le=100, description="Items per page"),
+    sort_by: str = Query("created_at", description="Sort by: created_at or action_type"),
+    search: Optional[str] = Query(None, min_length=2, description="Search in action_type and target_table"),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
-    """Get current user's action logs"""
+    """
+    Get current user's action logs
+    
+    **Authenticated users only**
+    
+    Query Parameters:
+    - **page**: Page number (default: 1)
+    - **limit**: Items per page (default: 10, max: 100)
+    - **sort_by**: Sort by created_at or action_type (default: created_at)
+    - **search**: Search in action_type and target_table (optional, min 2 chars)
+    
+    Examples:
+    - `/api/v1/users/me/logs?page=1&limit=10`
+    - `/api/v1/users/me/logs?sort_by=action_type`
+    - `/api/v1/users/me/logs?search=CREATE`
+    - `/api/v1/users/me/logs?sort_by=created_at&search=UPDATE`
+    """
     user_service = UserService(db)
-    logs, total = await user_service.get_user_logs(current_user.id, page, limit)
+    logs, total = await user_service.get_user_logs(
+        current_user.id, 
+        page, 
+        limit,
+        sort_by,
+        search
+    )
     
     return {
         "page": page,
@@ -148,43 +173,45 @@ async def create_user(
     return {"message": "User created successfully"}
 
 
+# ✅ List Users with Sort & Search
 @router.get(
     "",
     response_model=UserListResponse,
     status_code=status.HTTP_200_OK,
     summary="List Users",
-    description="Retrieves a list of users with optional filters and search (excluding current user). Admin only."
+    description="Retrieves a list of users with search and sorting (excluding current user). Admin only."
 )
 async def list_users(
     page: int = Query(1, ge=1, description="Page number"),
     limit: int = Query(10, ge=1, le=100, description="Items per page"),
-    role: Optional[str] = Query(None, description="Filter by role name"),
-    is_active: Optional[bool] = Query(None, description="Filter by active status"),
-    email_confirmed: Optional[bool] = Query(None, description="Filter by email confirmation"),
+    sort_by: str = Query("created_at", description="Sort by: created_at, email, full_name, or last_login"),
     search: Optional[str] = Query(None, min_length=2, description="Search by email or name"),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_admin)
 ):
     """
-    List users with filters and search
+    List users with search and sorting
     
     **Admin only**
     
+    Query Parameters:
     - **page**: Page number (default: 1)
     - **limit**: Items per page (default: 10, max: 100)
-    - **role**: Filter by role name (optional)
-    - **is_active**: Filter by active status (optional)
-    - **email_confirmed**: Filter by email confirmation (optional)
+    - **sort_by**: Sort by created_at, email, full_name, or last_login (default: created_at)
     - **search**: Search in email and full name (optional, min 2 chars)
+    
+    Examples:
+    - `/api/v1/users?page=1&limit=10`
+    - `/api/v1/users?sort_by=email`
+    - `/api/v1/users?search=mahmoud`
+    - `/api/v1/users?sort_by=last_login&search=john`
     """
     user_service = UserService(db)
     users, total = await user_service.list_users(
         current_user_id=current_user.id,
         page=page,
         limit=limit,
-        role=role,
-        is_active=is_active,
-        email_confirmed=email_confirmed,
+        sort_by=sort_by,
         search=search
     )
     
@@ -337,7 +364,7 @@ async def update_user_roles(
     await user_service.update_roles(user_id, update_data, current_user.id)
     return {"message": "User roles updated successfully"}
 
-# ✅ Bulk operations
+
 @router.patch(
     "/bulk/activate",
     response_model=BulkOperationResponse,
@@ -353,15 +380,7 @@ async def bulk_activate_users(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_admin)
 ):
-    """
-    Bulk activate users
-    
-    **Admin only**
-    
-    - **user_ids**: List of user UUIDs to activate (max 100)
-    
-    Returns summary of successful and failed operations.
-    """
+    """Bulk activate users"""
     user_service = UserService(db)
     result = await user_service.bulk_activate_users(operation_data.user_ids, current_user.id)
     return result
@@ -382,20 +401,13 @@ async def bulk_deactivate_users(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_admin)
 ):
-    """
-    Bulk deactivate users
-    
-    **Admin only**
-    
-    - **user_ids**: List of user UUIDs to deactivate (max 100)
-    
-    Returns summary of successful and failed operations.
-    """
+    """Bulk deactivate users"""
     user_service = UserService(db)
     result = await user_service.bulk_deactivate_users(operation_data.user_ids, current_user.id)
     return result
 
 
+# ✅ User Logs with Sort & Search
 @router.get(
     "/{user_id}/logs",
     response_model=UserLogsResponse,
@@ -404,18 +416,45 @@ async def bulk_deactivate_users(
         404: {"description": "User not found"}
     },
     summary="View User Action Logs",
-    description="Retrieves audit logs for actions performed BY a specific user. Admin only."
+    description="Retrieves audit logs for actions performed BY a specific user with search and sorting. Admin only."
 )
 async def get_user_logs(
     user_id: UUID,
     page: int = Query(1, ge=1, description="Page number"),
     limit: int = Query(10, ge=1, le=100, description="Items per page"),
+    sort_by: str = Query("created_at", description="Sort by: created_at or action_type"),
+    search: Optional[str] = Query(None, min_length=2, description="Search in action_type and target_table"),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_admin)
 ):
-    """Get user action logs"""
+    """
+    Get user action logs
+    
+    **Admin only**
+    
+    Query Parameters:
+    - **user_id**: User UUID (in path)
+    - **page**: Page number (default: 1)
+    - **limit**: Items per page (default: 10, max: 100)
+    - **sort_by**: Sort by created_at or action_type (default: created_at)
+    - **search**: Search in action_type and target_table (optional, min 2 chars)
+    
+    Examples:
+    - `/api/v1/users/{user_id}/logs?page=1&limit=10`
+    - `/api/v1/users/{user_id}/logs?sort_by=action_type`
+    - `/api/v1/users/{user_id}/logs?search=UPDATE`
+    - `/api/v1/users/{user_id}/logs?sort_by=created_at&search=CREATE`
+    
+    Returns audit logs showing actions performed BY this user.
+    """
     user_service = UserService(db)
-    logs, total = await user_service.get_user_logs(user_id, page, limit)
+    logs, total = await user_service.get_user_logs(
+        user_id, 
+        page, 
+        limit,
+        sort_by,
+        search
+    )
     
     return {
         "page": page,

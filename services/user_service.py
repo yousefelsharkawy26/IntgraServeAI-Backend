@@ -4,7 +4,7 @@ from sqlalchemy import select, func, or_
 from sqlalchemy.orm import selectinload
 from typing import List, Optional, Tuple
 from uuid import UUID
-from datetime import datetime, timedelta, timezone  # ✅ Add timezone
+from datetime import datetime, timedelta, timezone
 
 from models.user import User, Role
 from models.audit import AuditLog
@@ -40,7 +40,6 @@ class UserService:
     
     async def create_user(self, user_data: UserCreate, created_by_user_id: UUID) -> User:
         """Create a new user"""
-        # Check if email already exists
         result = await self.db.execute(
             select(User).where(User.email == user_data.email)
         )
@@ -49,7 +48,6 @@ class UserService:
         if existing_user:
             raise ConflictException(f"Email '{user_data.email}' already exists")
         
-        # Get roles
         roles = []
         for role_id in user_data.roles_id:
             result = await self.db.execute(
@@ -60,24 +58,23 @@ class UserService:
                 raise NotFoundException(f"Role with ID '{role_id}' not found")
             roles.append(role)
         
-        # Create user
+        now = datetime.now(timezone.utc)
+        
         user = User(
             email=user_data.email,
             password_hash=get_password_hash(user_data.password),
             full_name=user_data.full_name,
             is_active=True,
             email_confirmed=False,
-            created_at=datetime.now(timezone.utc),
-            updated_at=datetime.now(timezone.utc)
+            created_at=now,
+            updated_at=now
         )
         
-        # Assign roles
         user.roles = roles
         
         self.db.add(user)
         await self.db.flush()
         
-        # Create audit log
         await self._create_audit_log(
             user_id=created_by_user_id,
             action_type="CREATE",
@@ -127,7 +124,7 @@ class UserService:
             
             changed_values["email"] = {"old": user.email, "new": update_data.email}
             user.email = update_data.email
-            user.email_confirmed = False
+            user.email_confirmed = True
         
         if update_data.full_name and update_data.full_name != user.full_name:
             changed_values["full_name"] = {"old": user.full_name, "new": update_data.full_name}
@@ -286,7 +283,6 @@ class UserService:
         
         logger.info(f"User activated: {user.email}")
     
-    # ✅ Update own profile
     async def update_my_profile(
         self,
         user_id: UUID,
@@ -342,7 +338,6 @@ class UserService:
         
         return user
     
-    # ✅ Change own password
     async def change_my_password(
         self,
         user_id: UUID,
@@ -353,11 +348,9 @@ class UserService:
         if not user:
             raise NotFoundException("User not found")
         
-        # Verify current password
         if not verify_password(password_data.current_password, user.password_hash):
             raise AuthenticationException("Current password is incorrect")
         
-        # Update password
         user.password_hash = get_password_hash(password_data.new_password)
         user.updated_at = datetime.now(timezone.utc)
         
@@ -373,7 +366,6 @@ class UserService:
         
         logger.info(f"User changed own password: {user.email}")
     
-    # ✅ Bulk deactivate users
     async def bulk_deactivate_users(
         self,
         user_ids: List[UUID],
@@ -436,7 +428,6 @@ class UserService:
             "errors": errors if errors else None
         }
     
-    # ✅ Bulk activate users
     async def bulk_activate_users(
         self,
         user_ids: List[UUID],
@@ -499,32 +490,25 @@ class UserService:
             "errors": errors if errors else None
         }
     
-    # ✅ Get user statistics
     async def get_user_statistics(self) -> dict:
         """Get user statistics"""
-        # Total users
         total_result = await self.db.execute(select(func.count(User.id)))
         total_users = total_result.scalar()
         
-        # Active users
         active_result = await self.db.execute(
             select(func.count(User.id)).where(User.is_active == True)
         )
         active_users = active_result.scalar()
         
-        # Inactive users
         inactive_users = total_users - active_users
         
-        # Confirmed emails
         confirmed_result = await self.db.execute(
             select(func.count(User.id)).where(User.email_confirmed == True)
         )
         confirmed_emails = confirmed_result.scalar()
         
-        # Unconfirmed emails
         unconfirmed_emails = total_users - confirmed_emails
         
-        # Users by role
         users_by_role = {}
         roles_result = await self.db.execute(select(Role))
         roles = roles_result.scalars().all()
@@ -537,14 +521,12 @@ class UserService:
             )
             users_by_role[role.name] = count_result.scalar()
         
-        # Recent registrations (last 7 days)
         seven_days_ago = datetime.now(timezone.utc) - timedelta(days=7)
         recent_reg_result = await self.db.execute(
             select(func.count(User.id)).where(User.created_at >= seven_days_ago)
         )
         recent_registrations = recent_reg_result.scalar()
         
-        # Recent logins (last 24 hours)
         one_day_ago = datetime.now(timezone.utc) - timedelta(hours=24)
         recent_login_result = await self.db.execute(
             select(func.count(User.id)).where(User.last_login >= one_day_ago)
@@ -562,43 +544,41 @@ class UserService:
             "recent_logins": recent_logins
         }
     
-    # ✅ Get user activity
     async def get_user_activity(
         self,
         page: int = 1,
         limit: int = 10,
-        sort_by: str = "last_login"  # last_login or created_at
+        sort_by: str = "last_login"
     ) -> Tuple[List[UserActivity], int]:
         """Get user activity (last login information)"""
-        # Build query
         query = select(User)
         
-        # Get total count
         count_result = await self.db.execute(select(func.count(User.id)))
         total = count_result.scalar()
         
-        # Apply sorting
         if sort_by == "last_login":
             query = query.order_by(User.last_login.desc().nulls_last())
         else:
             query = query.order_by(User.created_at.desc())
         
-        # Apply pagination
         offset = (page - 1) * limit
         query = query.offset(offset).limit(limit)
         
-        # Execute query
         result = await self.db.execute(query)
         users = result.scalars().all()
         
-        # Convert to UserActivity
         user_activities = []
         now = datetime.now(timezone.utc)
         
         for user in users:
             days_since_login = None
             if user.last_login:
-                days_since_login = (now - user.last_login).days
+                if user.last_login.tzinfo is None:
+                    last_login_aware = user.last_login.replace(tzinfo=timezone.utc)
+                else:
+                    last_login_aware = user.last_login
+                
+                days_since_login = (now - last_login_aware).days
             
             activity = UserActivity(
                 id=user.id,
@@ -612,72 +592,62 @@ class UserService:
         
         return user_activities, total
     
+    # ✅ Updated: list_users with sort_by and search
     async def list_users(
         self,
         current_user_id: UUID,
         page: int = 1,
         limit: int = 10,
-        role: Optional[str] = None,
-        is_active: Optional[bool] = None,
-        email_confirmed: Optional[bool] = None,
-        search: Optional[str] = None  # ✅ Added search parameter
+        sort_by: str = "created_at",
+        search: Optional[str] = None
     ) -> Tuple[List[UserResponse], int]:
-        """List users with filters (excluding current user)"""
-        # Build query with eager loading
+        """List users with search and sorting (excluding current user)"""
         query = select(User).options(selectinload(User.roles))
         
-        # Exclude current user
         query = query.where(User.id != current_user_id)
         
-        # ✅ Apply search filter
+        # ✅ Apply search
         if search:
+            search_term = f"%{search}%"
             query = query.where(
                 or_(
-                    User.email.ilike(f"%{search}%"),
-                    User.full_name.ilike(f"%{search}%")
+                    User.email.ilike(search_term),
+                    User.full_name.ilike(search_term)
                 )
             )
         
-        # Apply filters
-        if role:
-            query = query.join(User.roles).where(Role.name == role)
-        
-        if is_active is not None:
-            query = query.where(User.is_active == is_active)
-        
-        if email_confirmed is not None:
-            query = query.where(User.email_confirmed == email_confirmed)
+        # ✅ Apply sorting
+        sort_options = {
+            "created_at": User.created_at.desc(),
+            "email": User.email.asc(),
+            "full_name": User.full_name.asc(),
+            "last_login": User.last_login.desc().nulls_last()
+        }
+        sort_column = sort_options.get(sort_by, User.created_at.desc())
+        query = query.order_by(sort_column)
         
         # Get total count
         count_query = select(func.count()).select_from(User).where(User.id != current_user_id)
         
         if search:
+            search_term = f"%{search}%"
             count_query = count_query.where(
                 or_(
-                    User.email.ilike(f"%{search}%"),
-                    User.full_name.ilike(f"%{search}%")
+                    User.email.ilike(search_term),
+                    User.full_name.ilike(search_term)
                 )
             )
-        
-        if role:
-            count_query = count_query.join(User.roles).where(Role.name == role)
-        if is_active is not None:
-            count_query = count_query.where(User.is_active == is_active)
-        if email_confirmed is not None:
-            count_query = count_query.where(User.email_confirmed == email_confirmed)
         
         total_result = await self.db.execute(count_query)
         total = total_result.scalar()
         
         # Apply pagination
         offset = (page - 1) * limit
-        query = query.offset(offset).limit(limit).order_by(User.created_at.desc())
+        query = query.offset(offset).limit(limit)
         
-        # Execute query
         result = await self.db.execute(query)
         users = result.scalars().unique().all()
         
-        # Convert to UserResponse with role names only
         user_responses = []
         for user in users:
             user_dict = {
@@ -725,41 +695,66 @@ class UserService:
         
         return UserResponse(**user_dict)
     
+    # ✅ Updated: get_user_logs with sort_by and search
     async def get_user_logs(
         self,
         user_id: UUID,
         page: int = 1,
-        limit: int = 10
+        limit: int = 10,
+        sort_by: str = "created_at",
+        search: Optional[str] = None
     ) -> Tuple[List[AuditLogResponse], int]:
-        """Get audit logs for actions performed BY a user"""
-        # Check if user exists
+        """Get audit logs for actions performed BY a user with search and sorting"""
         user = await self.get_user_by_id(user_id)
         if not user:
             raise NotFoundException("User not found")
         
-        # Build query
         query = select(AuditLog).options(
             selectinload(AuditLog.user)
         ).where(
             AuditLog.user_id == user_id
         )
         
+        # ✅ Apply search
+        if search:
+            search_term = f"%{search}%"
+            query = query.where(
+                or_(
+                    AuditLog.action_type.ilike(search_term),
+                    AuditLog.target_table.ilike(search_term)
+                )
+            )
+        
+        # ✅ Apply sorting
+        if sort_by == "action_type":
+            query = query.order_by(AuditLog.action_type.asc(), AuditLog.created_at.desc())
+        else:  # default: created_at
+            query = query.order_by(AuditLog.created_at.desc())
+        
         # Get total count
         count_query = select(func.count()).select_from(AuditLog).where(
             AuditLog.user_id == user_id
         )
+        
+        if search:
+            search_term = f"%{search}%"
+            count_query = count_query.where(
+                or_(
+                    AuditLog.action_type.ilike(search_term),
+                    AuditLog.target_table.ilike(search_term)
+                )
+            )
+        
         total_result = await self.db.execute(count_query)
         total = total_result.scalar()
         
         # Apply pagination
         offset = (page - 1) * limit
-        query = query.offset(offset).limit(limit).order_by(AuditLog.created_at.desc())
+        query = query.offset(offset).limit(limit)
         
-        # Execute query
         result = await self.db.execute(query)
         logs = result.scalars().all()
         
-        # Convert to AuditLogResponse
         log_responses = []
         for log in logs:
             log_dict = {
