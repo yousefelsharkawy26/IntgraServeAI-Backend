@@ -453,22 +453,29 @@ class TicketService:
         if not ticket:
             raise NotFoundException("Ticket not found")
         
-        # Validate access based on roles
-        if "Admin" not in user_roles:
-            has_tech = "Tech User" in user_roles
-            has_support = "Support User" in user_roles
-            
-            can_access = False
-            
-            if ticket.ticket_type == TicketType.TECH and has_tech:
-                can_access = True
-            elif ticket.ticket_type == TicketType.SUPPORT and has_support:
-                can_access = True
-            
-            if not can_access:
-                raise BadRequestException(
-                    f"You don't have permission to view {ticket.ticket_type.value.upper()} tickets"
-                )
+        # ✅ FIX 1: Admin can access any ticket
+        if "Admin" in user_roles:
+            return ticket
+        
+        # ✅ FIX 2: Non-admin users can only access their own tickets
+        if ticket.assignee_id != current_user_id:
+            raise BadRequestException("You can only view tickets assigned to you")
+        
+        # ✅ FIX 3: Validate ticket type matches user roles
+        has_tech = "Tech User" in user_roles
+        has_support = "Support User" in user_roles
+        
+        can_access = False
+        
+        if ticket.ticket_type == TicketType.TECH and has_tech:
+            can_access = True
+        elif ticket.ticket_type == TicketType.SUPPORT and has_support:
+            can_access = True
+        
+        if not can_access:
+            raise BadRequestException(
+                f"You don't have permission to view {ticket.ticket_type.value.upper()} tickets"
+            )
         
         return ticket
     
@@ -513,6 +520,12 @@ class TicketService:
         
         if not ticket.is_active:
             raise BadRequestException("Ticket is not active")
+        
+        # ✅ FIX: Prevent assigning closed/resolved/canceled tickets
+        if ticket.status in [TicketStatus.RESOLVED, TicketStatus.CLOSED, TicketStatus.CANCELED]:
+            raise BadRequestException(
+                f"Cannot assign a {ticket.status.value} ticket"
+            )
         
         # Check if already assigned
         if ticket.assignee_id is not None:
@@ -604,15 +617,45 @@ class TicketService:
     ) -> dict:
         """Update ticket status"""
         # Get ticket
-        ticket = await self.get_ticket_details(ticket_id, current_user_id, user_roles)
+        result = await self.db.execute(
+            select(Ticket)
+            .options(selectinload(Ticket.assignee))
+            .where(Ticket.id == ticket_id)
+        )
+        ticket = result.scalar_one_or_none()
         
-        # Validate status transition
-        self._validate_status_transition(ticket.status, new_status)
+        if not ticket:
+            raise NotFoundException("Ticket not found")
         
-        # Validate user can modify this ticket
+        # ✅ FIX: Prevent updating closed/resolved/canceled tickets
+        if ticket.status in [TicketStatus.RESOLVED, TicketStatus.CLOSED, TicketStatus.CANCELED]:
+            raise BadRequestException(
+                f"Cannot update status of a {ticket.status.value} ticket"
+            )
+        
+        # ✅ FIX: Validate user can modify this ticket
         if "Admin" not in user_roles:
             if ticket.assignee_id != current_user_id:
                 raise BadRequestException("You can only update tickets assigned to you")
+            
+            # Validate ticket type matches user roles
+            has_tech = "Tech User" in user_roles
+            has_support = "Support User" in user_roles
+            
+            can_access = False
+            
+            if ticket.ticket_type == TicketType.TECH and has_tech:
+                can_access = True
+            elif ticket.ticket_type == TicketType.SUPPORT and has_support:
+                can_access = True
+            
+            if not can_access:
+                raise BadRequestException(
+                    f"You don't have permission to update {ticket.ticket_type.value.upper()} tickets"
+                )
+        
+        # Validate status transition
+        self._validate_status_transition(ticket.status, new_status)
         
         # Update status
         old_status = ticket.status
@@ -681,22 +724,42 @@ class TicketService:
         - If current type is TECH → change to SUPPORT and UNASSIGN
         """
         # Get ticket
-        ticket = await self.get_ticket_details(ticket_id, current_user_id, user_roles)
+        result = await self.db.execute(
+            select(Ticket)
+            .options(selectinload(Ticket.assignee))
+            .where(Ticket.id == ticket_id)
+        )
+        ticket = result.scalar_one_or_none()
         
-        # Validate ticket can be reassigned
-        if ticket.is_closed:
-            raise BadRequestException("Cannot reassign a closed ticket")
+        if not ticket:
+            raise NotFoundException("Ticket not found")
         
-        if ticket.status == TicketStatus.CANCELED:
-            raise BadRequestException("Cannot reassign a canceled ticket")
+        # ✅ FIX: Prevent reassigning closed/resolved/canceled tickets
+        if ticket.status in [TicketStatus.RESOLVED, TicketStatus.CLOSED, TicketStatus.CANCELED]:
+            raise BadRequestException(
+                f"Cannot reassign a {ticket.status.value} ticket"
+            )
         
-        if ticket.status == TicketStatus.RESOLVED:
-            raise BadRequestException("Cannot reassign a resolved ticket")
-        
-        # Validate user can reassign
+        # ✅ FIX: Validate user can reassign
         if "Admin" not in user_roles:
             if ticket.assignee_id != current_user_id:
                 raise BadRequestException("You can only reassign tickets assigned to you")
+            
+            # Validate ticket type matches user roles
+            has_tech = "Tech User" in user_roles
+            has_support = "Support User" in user_roles
+            
+            can_access = False
+            
+            if ticket.ticket_type == TicketType.TECH and has_tech:
+                can_access = True
+            elif ticket.ticket_type == TicketType.SUPPORT and has_support:
+                can_access = True
+            
+            if not can_access:
+                raise BadRequestException(
+                    f"You don't have permission to reassign {ticket.ticket_type.value.upper()} tickets"
+                )
         
         # Determine new ticket type (Toggle)
         old_ticket_type = ticket.ticket_type
@@ -758,9 +821,17 @@ class TicketService:
     ) -> dict:
         """Resolve ticket"""
         # Get ticket
-        ticket = await self.get_ticket_details(ticket_id, current_user_id, user_roles)
+        result = await self.db.execute(
+            select(Ticket)
+            .options(selectinload(Ticket.assignee))
+            .where(Ticket.id == ticket_id)
+        )
+        ticket = result.scalar_one_or_none()
         
-        # Validate ticket can be resolved
+        if not ticket:
+            raise NotFoundException("Ticket not found")
+        
+        # ✅ FIX: Validate ticket can be resolved
         if ticket.is_closed:
             raise BadRequestException("Ticket is already closed")
         
@@ -770,10 +841,26 @@ class TicketService:
         if ticket.status == TicketStatus.RESOLVED:
             raise BadRequestException("Ticket is already resolved")
         
-        # Validate user can resolve
+        # ✅ FIX: Validate user can resolve
         if "Admin" not in user_roles:
             if ticket.assignee_id != current_user_id:
                 raise BadRequestException("You can only resolve tickets assigned to you")
+            
+            # Validate ticket type matches user roles
+            has_tech = "Tech User" in user_roles
+            has_support = "Support User" in user_roles
+            
+            can_access = False
+            
+            if ticket.ticket_type == TicketType.TECH and has_tech:
+                can_access = True
+            elif ticket.ticket_type == TicketType.SUPPORT and has_support:
+                can_access = True
+            
+            if not can_access:
+                raise BadRequestException(
+                    f"You don't have permission to resolve {ticket.ticket_type.value.upper()} tickets"
+                )
         
         # Update ticket
         old_status = ticket.status
@@ -828,19 +915,46 @@ class TicketService:
     ) -> dict:
         """Cancel ticket"""
         # Get ticket
-        ticket = await self.get_ticket_details(ticket_id, current_user_id, user_roles)
+        result = await self.db.execute(
+            select(Ticket)
+            .options(selectinload(Ticket.assignee))
+            .where(Ticket.id == ticket_id)
+        )
+        ticket = result.scalar_one_or_none()
         
-        # Validate ticket can be canceled
+        if not ticket:
+            raise NotFoundException("Ticket not found")
+        
+        # ✅ FIX: Validate ticket can be canceled
         if ticket.is_closed:
             raise BadRequestException("Cannot cancel a closed ticket")
         
         if ticket.status == TicketStatus.CANCELED:
             raise BadRequestException("Ticket is already canceled")
         
-        # Validate user can cancel
+        if ticket.status == TicketStatus.RESOLVED:
+            raise BadRequestException("Cannot cancel a resolved ticket. Please close it instead.")
+        
+        # ✅ FIX: Validate user can cancel
         if "Admin" not in user_roles:
             if ticket.assignee_id != current_user_id:
                 raise BadRequestException("You can only cancel tickets assigned to you")
+            
+            # Validate ticket type matches user roles
+            has_tech = "Tech User" in user_roles
+            has_support = "Support User" in user_roles
+            
+            can_access = False
+            
+            if ticket.ticket_type == TicketType.TECH and has_tech:
+                can_access = True
+            elif ticket.ticket_type == TicketType.SUPPORT and has_support:
+                can_access = True
+            
+            if not can_access:
+                raise BadRequestException(
+                    f"You don't have permission to cancel {ticket.ticket_type.value.upper()} tickets"
+                )
         
         # Update ticket
         old_status = ticket.status
@@ -879,7 +993,15 @@ class TicketService:
     ) -> dict:
         """Close ticket (only if resolved)"""
         # Get ticket
-        ticket = await self.get_ticket_details(ticket_id, current_user_id, user_roles)
+        result = await self.db.execute(
+            select(Ticket)
+            .options(selectinload(Ticket.assignee))
+            .where(Ticket.id == ticket_id)
+        )
+        ticket = result.scalar_one_or_none()
+        
+        if not ticket:
+            raise NotFoundException("Ticket not found")
         
         # Validate ticket can be closed
         if ticket.is_closed:
@@ -888,10 +1010,26 @@ class TicketService:
         if ticket.status != TicketStatus.RESOLVED:
             raise BadRequestException("Only resolved tickets can be closed")
         
-        # Validate user can close
+        # ✅ FIX: Validate user can close
         if "Admin" not in user_roles:
             if ticket.assignee_id != current_user_id:
                 raise BadRequestException("You can only close tickets assigned to you")
+            
+            # Validate ticket type matches user roles
+            has_tech = "Tech User" in user_roles
+            has_support = "Support User" in user_roles
+            
+            can_access = False
+            
+            if ticket.ticket_type == TicketType.TECH and has_tech:
+                can_access = True
+            elif ticket.ticket_type == TicketType.SUPPORT and has_support:
+                can_access = True
+            
+            if not can_access:
+                raise BadRequestException(
+                    f"You don't have permission to close {ticket.ticket_type.value.upper()} tickets"
+                )
         
         # Update ticket
         now = datetime.now(timezone.utc)
@@ -933,8 +1071,38 @@ class TicketService:
         limit: int = 20
     ) -> Tuple[List[TicketMessage], int]:
         """Get messages for a specific ticket"""
-        # Verify user can access this ticket
-        ticket = await self.get_ticket_details(ticket_id, current_user_id, user_roles)
+        # ✅ FIX: Verify user can access this ticket
+        result = await self.db.execute(
+            select(Ticket)
+            .options(selectinload(Ticket.assignee))
+            .where(Ticket.id == ticket_id)
+        )
+        ticket = result.scalar_one_or_none()
+        
+        if not ticket:
+            raise NotFoundException("Ticket not found")
+        
+        # ✅ FIX: Admin can access any ticket
+        if "Admin" not in user_roles:
+            # Non-admin users can only access their own tickets
+            if ticket.assignee_id != current_user_id:
+                raise BadRequestException("You can only view messages for tickets assigned to you")
+            
+            # Validate ticket type matches user roles
+            has_tech = "Tech User" in user_roles
+            has_support = "Support User" in user_roles
+            
+            can_access = False
+            
+            if ticket.ticket_type == TicketType.TECH and has_tech:
+                can_access = True
+            elif ticket.ticket_type == TicketType.SUPPORT and has_support:
+                can_access = True
+            
+            if not can_access:
+                raise BadRequestException(
+                    f"You don't have permission to view messages for {ticket.ticket_type.value.upper()} tickets"
+                )
         
         # Base query
         query = select(TicketMessage).where(
@@ -971,20 +1139,44 @@ class TicketService:
         user_roles: List[str]
     ) -> dict:
         """Create a new message in ticket with attachments (authenticated)"""
-        # Verify user can access this ticket
-        ticket = await self.get_ticket_details(ticket_id, current_user_id, user_roles)
+        # ✅ FIX: Verify user can access this ticket
+        result = await self.db.execute(
+            select(Ticket)
+            .options(selectinload(Ticket.assignee))
+            .where(Ticket.id == ticket_id)
+        )
+        ticket = result.scalar_one_or_none()
         
-        # Check if ticket is closed or canceled
+        if not ticket:
+            raise NotFoundException("Ticket not found")
+        
+        # ✅ FIX: Prevent adding messages to closed/canceled tickets
         if ticket.is_closed:
             raise BadRequestException("Cannot add messages to a closed ticket")
         
         if ticket.status == TicketStatus.CANCELED:
             raise BadRequestException("Cannot add messages to a canceled ticket")
         
-        # Validate user can add message
+        # ✅ FIX: Validate user can add message
         if "Admin" not in user_roles:
             if ticket.assignee_id != current_user_id:
                 raise BadRequestException("You can only add messages to tickets assigned to you")
+            
+            # Validate ticket type matches user roles
+            has_tech = "Tech User" in user_roles
+            has_support = "Support User" in user_roles
+            
+            can_access = False
+            
+            if ticket.ticket_type == TicketType.TECH and has_tech:
+                can_access = True
+            elif ticket.ticket_type == TicketType.SUPPORT and has_support:
+                can_access = True
+            
+            if not can_access:
+                raise BadRequestException(
+                    f"You don't have permission to add messages to {ticket.ticket_type.value.upper()} tickets"
+                )
         
         # Get user info
         result = await self.db.execute(
@@ -1001,7 +1193,7 @@ class TicketService:
             sender_email=user.email if user else None,
             message_text=message_text,
             is_internal_note=is_internal_note,
-            attachments=attachments,  # ✅ أضف attachments
+            attachments=attachments,
             created_at=now
         )
         
