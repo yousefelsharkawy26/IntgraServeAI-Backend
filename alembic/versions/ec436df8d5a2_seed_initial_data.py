@@ -100,7 +100,7 @@ def upgrade() -> None:
                 'id': admin_user_id,
                 'email': 'admin@integraserve-ai.com',
                 'email_confirmed': True,
-                'password_hash': '$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewY5GyYfZvJi7BLe',
+                'password_hash': '$2a$12$v57Q.deAbPuYyQNRv2z6O.M/J03BaVRMox9cc/6x.j9uFXkpY3lQu',
                 'full_name': 'System Administrator',
                 'is_active': True,
                 'last_login': None,

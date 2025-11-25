@@ -1,9 +1,10 @@
 # apis/v1/tickets.py
-from fastapi import APIRouter, Depends, status, Query, UploadFile, File, Form
+from fastapi import APIRouter, Depends, status, Query, UploadFile, File, Form, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid import UUID
 from typing import Optional, List
 from pydantic import EmailStr
+from starlette.datastructures import UploadFile as StarletteUploadFile
 
 from core.database import get_db
 from services.ticket_service import TicketService
@@ -20,10 +21,8 @@ from utils.schemas.ticket_schemas import (
     TicketReassign,
     TicketResolve,
     TicketCancel,
-    TicketMessageCreate,
     TicketMessageResponse,
     TicketMessagesListResponse,
-    FileUploadResponse,
     TicketStatistics,
     TicketMessageAddedResponse,
     TicketAssignedResponse,
@@ -37,11 +36,148 @@ from utils.schemas.ticket_schemas import (
 from utils.dependencies import get_current_active_user, require_admin
 from models.user import User
 from models.ticket import TicketStatus, TicketPriority, TicketType
-from utils.exceptions import BadRequestException
+from utils.exceptions import BadRequestException, ValidationException
 import logging
+import shutil
+from pathlib import Path
+import time
+import re
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+
+# ==================== Helper Functions ====================
+
+def validate_email(email: str) -> bool:
+    """Validate email format"""
+    pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+    return bool(re.match(pattern, email))
+
+
+async def parse_form_with_files(request: Request) -> dict:
+    """
+    Parse multipart form data with proper file handling
+    
+    Returns dict with:
+    - customer_email: str
+    - customer_name: str
+    - message_text: str (can be empty)
+    - is_internal_note: bool
+    - files: List[UploadFile]
+    """
+    form = await request.form()
+    
+    # Extract text fields
+    customer_email = form.get("customer_email", "")
+    customer_name = form.get("customer_name", "")
+    message_text = form.get("message_text", "")
+    is_internal_note_str = form.get("is_internal_note", "false")
+    
+    # Convert is_internal_note to bool
+    is_internal_note = is_internal_note_str.lower() in ("true", "1", "yes")
+    
+    # Extract files - handle multiple files with same key
+    files = []
+    for key in form.keys():
+        if key == "files":
+            # Get all values for "files" key
+            for item in form.getlist("files"):
+                if isinstance(item, StarletteUploadFile):
+                    # Check if file has actual content
+                    if item.filename and item.filename.strip():
+                        files.append(item)
+    
+    return {
+        "customer_email": str(customer_email).strip() if customer_email else "",
+        "customer_name": str(customer_name).strip() if customer_name else "",
+        "message_text": str(message_text).strip() if message_text else "",
+        "is_internal_note": is_internal_note,
+        "files": files
+    }
+
+
+async def save_uploaded_files(files: List, ticket_id: UUID) -> List[dict]:
+    """
+    Validate and save uploaded files
+    
+    Returns list of attachment dictionaries
+    """
+    attachments = []
+    
+    if not files:
+        return attachments
+    
+    if len(files) > 5:
+        raise BadRequestException("Maximum 5 files allowed per message")
+    
+    # Create upload directory
+    upload_dir = Path("uploads/tickets") / str(ticket_id) / "messages"
+    upload_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Allowed extensions
+    allowed_extensions = {
+        '.jpg', '.jpeg', '.png', '.gif',
+        '.pdf',
+        '.doc', '.docx',
+        '.txt',
+        '.csv', '.xlsx'
+    }
+    
+    MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
+    
+    for file in files:
+        try:
+            # Read file content
+            content = await file.read()
+            file_size = len(content)
+            
+            # Reset file position for potential re-read
+            await file.seek(0)
+            
+            # Skip empty files
+            if file_size == 0:
+                continue
+            
+            # Validate file size
+            if file_size > MAX_FILE_SIZE:
+                raise BadRequestException(
+                    f"File '{file.filename}' exceeds 10 MB limit (size: {file_size / 1024 / 1024:.2f} MB)"
+                )
+            
+            # Validate file extension
+            file_extension = Path(file.filename).suffix.lower()
+            if file_extension not in allowed_extensions:
+                raise BadRequestException(
+                    f"File type '{file_extension}' not allowed. "
+                    f"Allowed: {', '.join(sorted(allowed_extensions))}"
+                )
+            
+            # Generate unique filename
+            timestamp = int(time.time() * 1000)
+            safe_filename = f"{timestamp}_{file.filename}"
+            file_path = upload_dir / safe_filename
+            
+            # Save file
+            with open(file_path, "wb") as f:
+                f.write(content)
+            
+            attachments.append({
+                "filename": file.filename,
+                "file_path": str(file_path),
+                "file_size": file_size,
+                "content_type": file.content_type or "application/octet-stream"
+            })
+            
+            logger.info(f"File saved: {file_path} ({file_size} bytes)")
+            
+        except BadRequestException:
+            raise
+        except Exception as e:
+            logger.error(f"Failed to save file {file.filename}: {str(e)}")
+            raise BadRequestException(f"Failed to save file '{file.filename}'")
+    
+    return attachments
 
 
 # ==================== Public Endpoints (No Auth) ====================
@@ -50,15 +186,6 @@ logger = logging.getLogger(__name__)
     "/external/create",
     response_model=ExternalTicketCreateResponse,
     status_code=status.HTTP_201_CREATED,
-    responses={
-        201: {
-            "description": "Ticket created successfully",
-            "model": ExternalTicketCreateResponse
-        },
-        422: {
-            "description": "Validation Error"
-        }
-    },
     summary="Create Ticket from External System",
     description="""
     Creates a support ticket from an external system. No authentication required.
@@ -74,7 +201,7 @@ async def create_external_ticket(
     ticket_data: ExternalTicketCreate,
     db: AsyncSession = Depends(get_db)
 ):
-    """Create ticket from external system (e.g., CRM, website form)"""
+    """Create ticket from external system"""
     ticket_service = TicketService(db)
     ticket = await ticket_service.create_external_ticket(ticket_data)
     
@@ -88,107 +215,96 @@ async def create_external_ticket(
     "/external/{ticket_id}/messages",
     response_model=TicketMessageAddedResponse,
     status_code=status.HTTP_201_CREATED,
-    responses={
-        201: {
-            "description": "Message added successfully",
-            "model": TicketMessageAddedResponse
-        },
-        400: {
-            "description": "Bad Request - Email mismatch, closed ticket, or no content"
-        },
-        404: {
-            "description": "Ticket not found"
-        },
-        422: {
-            "description": "Validation Error"
-        }
-    },
     summary="Add Message from External Customer",
     description="""
-    Add a message to ticket from external customer with optional file attachments.
-    No authentication required.
+    Add a message to ticket from external customer. No authentication required.
     
-    **Options**:
-    - Message only (no files)
-    - Files only (no message)
-    - Message + Files
+    **Content-Type**: multipart/form-data
     
-    **File Upload Rules**:
+    **Required Fields**:
+    - customer_email: Customer email address
+    - customer_name: Customer name (min 2 characters)
+    
+    **Optional Fields**:
+    - message_text: Message text (optional if files provided)
+    - files: File attachments (optional if message provided)
+    
+    **Rules**:
+    - Must provide message OR files OR both
     - Max 5 files per message
     - Max 10 MB per file
     - Allowed: jpg, jpeg, png, gif, pdf, doc, docx, txt, csv, xlsx
+    
+    **Examples**:
+    
+    1. Message only:
+    ```
+    customer_email: customer@example.com
+    customer_name: John Doe
+    message_text: I need help with my order
+    ```
+    
+    2. Files only:
+    ```
+    customer_email: customer@example.com
+    customer_name: John Doe
+    files: [file1.pdf]
+    ```
+    
+    3. Message + Files:
+    ```
+    customer_email: customer@example.com
+    customer_name: John Doe
+    message_text: See attached screenshots
+    files: [screenshot1.png, screenshot2.png]
+    ```
     """
 )
-async def create_external_message_with_files(
+async def create_external_message(
     ticket_id: UUID,
-    customer_email: EmailStr = Form(..., description="Customer email"),
-    customer_name: str = Form(..., min_length=2, max_length=255, description="Customer name"),
-    message_text: Optional[str] = Form(None, max_length=5000, description="Message text (optional)"),
-    files: List[UploadFile] = File(None, description="Attachments (optional, max 5 files, 10 MB each)"),
+    request: Request,
     db: AsyncSession = Depends(get_db)
 ):
-    """Add message with optional files from external customer"""
-    import shutil
-    from pathlib import Path
-    import time
+    """Add message from external customer with optional files"""
     
-    ticket_service = TicketService(db)
+    # Parse form data
+    form_data = await parse_form_with_files(request)
     
-    # ✅ Validate: must have message OR files (or both)
-    has_message = message_text and message_text.strip()
-    has_files = files and files[0].filename
+    customer_email = form_data["customer_email"]
+    customer_name = form_data["customer_name"]
+    message_text = form_data["message_text"]
+    files = form_data["files"]
+    
+    # Validate required fields
+    if not customer_email:
+        raise ValidationException({"customer_email": "Customer email is required"})
+    
+    if not validate_email(customer_email):
+        raise ValidationException({"customer_email": "Invalid email format"})
+    
+    if not customer_name:
+        raise ValidationException({"customer_name": "Customer name is required"})
+    
+    if len(customer_name) < 2:
+        raise ValidationException({"customer_name": "Customer name must be at least 2 characters"})
+    
+    # Check content
+    has_message = bool(message_text)
+    has_files = len(files) > 0
     
     if not has_message and not has_files:
-        raise BadRequestException("Must provide either a message or files (or both)")
+        raise BadRequestException(
+            "Must provide either a message, files, or both"
+        )
     
-    # Default message if only files
-    final_message = message_text.strip() if has_message else "[File(s) attached]"
+    # Process files
+    attachments = await save_uploaded_files(files, ticket_id)
     
-    # Validate and save files
-    attachments = []
+    # Final message
+    final_message = message_text if has_message else "[File(s) attached]"
     
-    if has_files:
-        if len(files) > 5:
-            raise BadRequestException("Maximum 5 files allowed per message")
-        
-        upload_dir = Path("uploads/tickets") / str(ticket_id) / "messages"
-        upload_dir.mkdir(parents=True, exist_ok=True)
-        
-        allowed_extensions = {'.jpg', '.jpeg', '.png', '.gif', '.pdf', '.doc', '.docx', '.txt', '.csv', '.xlsx'}
-        MAX_FILE_SIZE = 10 * 1024 * 1024
-        
-        for file in files:
-            if not file.filename:
-                continue
-                
-            file.file.seek(0, 2)
-            file_size = file.file.tell()
-            file.file.seek(0)
-            
-            if file_size > MAX_FILE_SIZE:
-                raise BadRequestException(f"File '{file.filename}' exceeds 10 MB limit")
-            
-            file_extension = Path(file.filename).suffix.lower()
-            
-            if file_extension not in allowed_extensions:
-                raise BadRequestException(f"File type {file_extension} not allowed")
-            
-            timestamp = int(time.time() * 1000)
-            safe_filename = f"{timestamp}_{file.filename}"
-            file_path = upload_dir / safe_filename
-            
-            with file_path.open("wb") as buffer:
-                shutil.copyfileobj(file.file, buffer)
-            
-            attachments.append({
-                "filename": file.filename,
-                "file_path": str(file_path),
-                "file_size": file_size,
-                "content_type": file.content_type or "application/octet-stream"
-            })
-            
-            logger.info(f"File uploaded: {file_path}")
-    
+    # Create message
+    ticket_service = TicketService(db)
     result = await ticket_service.create_external_message(
         ticket_id=ticket_id,
         customer_email=customer_email,
@@ -207,25 +323,16 @@ async def create_external_message_with_files(
     "/external/my-tickets",
     response_model=ExternalTicketListResponse,
     status_code=status.HTTP_200_OK,
-    responses={
-        200: {
-            "description": "Tickets retrieved successfully",
-            "model": ExternalTicketListResponse
-        },
-        422: {
-            "description": "Validation Error"
-        }
-    },
     summary="Get My Tickets (External Customer)",
-    description="Get simplified tickets list for external customer by email. No authentication required."
+    description="Get tickets for external customer by email. No authentication required."
 )
 async def get_external_customer_tickets(
     customer_email: EmailStr = Query(..., description="Customer email address"),
-    page: int = Query(1, ge=1, description="Page number"),
-    limit: int = Query(10, ge=1, le=100, description="Items per page"),
+    page: int = Query(1, ge=1),
+    limit: int = Query(10, ge=1, le=100),
     db: AsyncSession = Depends(get_db)
 ):
-    """Get tickets for external customer (no auth) - Simplified response"""
+    """Get tickets for external customer"""
     ticket_service = TicketService(db)
     
     tickets, total = await ticket_service.get_external_customer_tickets(
@@ -248,23 +355,8 @@ async def get_external_customer_tickets(
     "/external/{ticket_id}/messages",
     response_model=TicketMessagesListResponse,
     status_code=status.HTTP_200_OK,
-    responses={
-        200: {
-            "description": "Messages retrieved successfully",
-            "model": TicketMessagesListResponse
-        },
-        400: {
-            "description": "Bad Request - Email mismatch"
-        },
-        404: {
-            "description": "Ticket not found"
-        },
-        422: {
-            "description": "Validation Error"
-        }
-    },
     summary="Get Ticket Messages (External Customer)",
-    description="Get messages for external customer. No authentication required. Internal notes are excluded."
+    description="Get messages for external customer. Internal notes excluded."
 )
 async def get_external_ticket_messages(
     ticket_id: UUID,
@@ -273,7 +365,7 @@ async def get_external_ticket_messages(
     limit: int = Query(20, ge=1, le=100),
     db: AsyncSession = Depends(get_db)
 ):
-    """Get ticket messages for external customer (no auth)"""
+    """Get ticket messages for external customer"""
     ticket_service = TicketService(db)
     
     messages, total = await ticket_service.get_external_ticket_messages(
@@ -312,32 +404,20 @@ async def get_external_ticket_messages(
     "/my-tickets",
     response_model=TicketSimpleListResponse,
     status_code=status.HTTP_200_OK,
-    responses={
-        200: {
-            "description": "Tickets retrieved successfully",
-            "model": TicketSimpleListResponse
-        },
-        401: {
-            "description": "Unauthorized"
-        },
-        422: {
-            "description": "Validation Error"
-        }
-    },
     summary="Get My Tickets",
-    description="Retrieves tickets assigned to current user with automatic role-based filtering. Returns simplified response."
+    description="Get tickets assigned to current user with role-based filtering."
 )
 async def get_my_tickets(
     page: int = Query(1, ge=1),
     limit: int = Query(10, ge=1, le=100),
-    status: Optional[TicketStatus] = Query(None, description="Filter by status"),
-    priority: Optional[TicketPriority] = Query(None, description="Filter by priority"),
-    sort_by: str = Query("created_at", description="Sort by: created_at, updated_at, priority, status, title"),
-    search: Optional[str] = Query(None, min_length=2, description="Search in title, customer name/email"),
+    status: Optional[TicketStatus] = Query(None),
+    priority: Optional[TicketPriority] = Query(None),
+    sort_by: str = Query("created_at"),
+    search: Optional[str] = Query(None, min_length=2),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
-    """Get my tickets with automatic role-based filtering"""
+    """Get my tickets"""
     ticket_service = TicketService(db)
     user_roles = [role.name for role in current_user.roles]
     
@@ -366,31 +446,19 @@ async def get_my_tickets(
     "/unassigned",
     response_model=TicketSimpleListResponse,
     status_code=status.HTTP_200_OK,
-    responses={
-        200: {
-            "description": "Unassigned tickets retrieved successfully",
-            "model": TicketSimpleListResponse
-        },
-        401: {
-            "description": "Unauthorized"
-        },
-        422: {
-            "description": "Validation Error"
-        }
-    },
     summary="Get Unassigned Tickets",
-    description="Retrieves unassigned tickets with automatic role-based filtering. Returns simplified response."
+    description="Get unassigned tickets with role-based filtering."
 )
 async def get_unassigned_tickets(
     page: int = Query(1, ge=1),
     limit: int = Query(10, ge=1, le=100),
-    priority: Optional[TicketPriority] = Query(None, description="Filter by priority"),
-    sort_by: str = Query("priority", description="Sort by: priority, created_at, title"),
-    search: Optional[str] = Query(None, min_length=2, description="Search in title, customer name"),
+    priority: Optional[TicketPriority] = Query(None),
+    sort_by: str = Query("priority"),
+    search: Optional[str] = Query(None, min_length=2),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
-    """Get unassigned tickets with automatic role-based filtering"""
+    """Get unassigned tickets"""
     ticket_service = TicketService(db)
     user_roles = [role.name for role in current_user.roles]
     
@@ -417,30 +485,15 @@ async def get_unassigned_tickets(
     "/{ticket_id}",
     response_model=TicketResponse,
     status_code=status.HTTP_200_OK,
-    responses={
-        200: {
-            "description": "Ticket details retrieved successfully",
-            "model": TicketResponse
-        },
-        401: {
-            "description": "Unauthorized"
-        },
-        403: {
-            "description": "Forbidden - No permission to view this ticket type"
-        },
-        404: {
-            "description": "Ticket not found"
-        }
-    },
     summary="Get Ticket Details",
-    description="Retrieves detailed information about a specific ticket."
+    description="Get ticket details (only tickets assigned to you)."
 )
 async def get_ticket_details(
     ticket_id: UUID,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
-    """Get ticket details by ID"""
+    """Get ticket details"""
     ticket_service = TicketService(db)
     user_roles = [role.name for role in current_user.roles]
     
@@ -478,33 +531,15 @@ async def get_ticket_details(
     "/{ticket_id}/assign-to-me",
     response_model=TicketAssignedResponse,
     status_code=status.HTTP_200_OK,
-    responses={
-        200: {
-            "description": "Ticket assigned successfully",
-            "model": TicketAssignedResponse
-        },
-        400: {
-            "description": "Bad Request - Invalid status or no permission"
-        },
-        401: {
-            "description": "Unauthorized"
-        },
-        404: {
-            "description": "Ticket not found"
-        },
-        409: {
-            "description": "Conflict - Ticket already assigned"
-        }
-    },
     summary="Assign Ticket to Me",
-    description="Self-assign an unassigned ticket to the current user."
+    description="Self-assign an unassigned ticket."
 )
 async def assign_ticket_to_me(
     ticket_id: UUID,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
-    """Self-assign an unassigned ticket"""
+    """Self-assign ticket"""
     ticket_service = TicketService(db)
     user_roles = [role.name for role in current_user.roles]
     
@@ -525,26 +560,8 @@ async def assign_ticket_to_me(
     "/{ticket_id}/status",
     response_model=TicketStatusUpdateResponse,
     status_code=status.HTTP_200_OK,
-    responses={
-        200: {
-            "description": "Status updated successfully",
-            "model": TicketStatusUpdateResponse
-        },
-        400: {
-            "description": "Bad Request - Invalid status transition"
-        },
-        401: {
-            "description": "Unauthorized"
-        },
-        404: {
-            "description": "Ticket not found"
-        },
-        422: {
-            "description": "Validation Error"
-        }
-    },
     summary="Update Ticket Status",
-    description="Update the status of a ticket."
+    description="Update ticket status."
 )
 async def update_ticket_status(
     ticket_id: UUID,
@@ -576,33 +593,8 @@ async def update_ticket_status(
     "/{ticket_id}/reassign",
     response_model=TicketReassignResponse,
     status_code=status.HTTP_200_OK,
-    responses={
-        200: {
-            "description": "Ticket reassigned successfully",
-            "model": TicketReassignResponse
-        },
-        400: {
-            "description": "Bad Request - Closed, canceled, or resolved ticket"
-        },
-        401: {
-            "description": "Unauthorized"
-        },
-        404: {
-            "description": "Ticket not found"
-        },
-        422: {
-            "description": "Validation Error"
-        }
-    },
     summary="Toggle Reassign Ticket",
-    description="""
-    Toggle reassign ticket between Tech and Support teams. The ticket will be UNASSIGNED.
-    
-    - If current type is **SUPPORT** → changes to **TECH** (unassigned)
-    - If current type is **TECH** → changes to **SUPPORT** (unassigned)
-    
-    The ticket will appear in the unassigned queue for the target team.
-    """
+    description="Toggle between Tech and Support teams (ticket becomes unassigned)."
 )
 async def reassign_ticket(
     ticket_id: UUID,
@@ -610,7 +602,7 @@ async def reassign_ticket(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
-    """Toggle reassign ticket between Tech and Support (unassigned)"""
+    """Toggle reassign ticket"""
     ticket_service = TicketService(db)
     user_roles = [role.name for role in current_user.roles]
     
@@ -632,26 +624,8 @@ async def reassign_ticket(
     "/{ticket_id}/resolve",
     response_model=TicketResolvedResponse,
     status_code=status.HTTP_200_OK,
-    responses={
-        200: {
-            "description": "Ticket resolved successfully",
-            "model": TicketResolvedResponse
-        },
-        400: {
-            "description": "Bad Request - Closed, canceled, or already resolved"
-        },
-        401: {
-            "description": "Unauthorized"
-        },
-        404: {
-            "description": "Ticket not found"
-        },
-        422: {
-            "description": "Validation Error"
-        }
-    },
     summary="Resolve Ticket",
-    description="Mark a ticket as resolved with resolution notes."
+    description="Mark ticket as resolved."
 )
 async def resolve_ticket(
     ticket_id: UUID,
@@ -659,7 +633,7 @@ async def resolve_ticket(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
-    """Resolve a ticket"""
+    """Resolve ticket"""
     ticket_service = TicketService(db)
     user_roles = [role.name for role in current_user.roles]
     
@@ -681,26 +655,8 @@ async def resolve_ticket(
     "/{ticket_id}/cancel",
     response_model=TicketCanceledResponse,
     status_code=status.HTTP_200_OK,
-    responses={
-        200: {
-            "description": "Ticket canceled successfully",
-            "model": TicketCanceledResponse
-        },
-        400: {
-            "description": "Bad Request - Closed or already canceled"
-        },
-        401: {
-            "description": "Unauthorized"
-        },
-        404: {
-            "description": "Ticket not found"
-        },
-        422: {
-            "description": "Validation Error"
-        }
-    },
     summary="Cancel Ticket",
-    description="Cancel a ticket (duplicate, invalid, etc.)."
+    description="Cancel a ticket."
 )
 async def cancel_ticket(
     ticket_id: UUID,
@@ -708,7 +664,7 @@ async def cancel_ticket(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
-    """Cancel a ticket"""
+    """Cancel ticket"""
     ticket_service = TicketService(db)
     user_roles = [role.name for role in current_user.roles]
     
@@ -729,30 +685,15 @@ async def cancel_ticket(
     "/{ticket_id}/close",
     response_model=TicketClosedResponse,
     status_code=status.HTTP_200_OK,
-    responses={
-        200: {
-            "description": "Ticket closed successfully",
-            "model": TicketClosedResponse
-        },
-        400: {
-            "description": "Bad Request - Not resolved or already closed"
-        },
-        401: {
-            "description": "Unauthorized"
-        },
-        404: {
-            "description": "Ticket not found"
-        }
-    },
     summary="Close Ticket",
-    description="Close a resolved ticket (final state)."
+    description="Close a resolved ticket."
 )
 async def close_ticket(
     ticket_id: UUID,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
-    """Close a ticket (only if resolved)"""
+    """Close ticket"""
     ticket_service = TicketService(db)
     user_roles = [role.name for role in current_user.roles]
     
@@ -769,32 +710,14 @@ async def close_ticket(
     )
 
 
-# ==================== Ticket Messages ====================
+# ==================== Ticket Messages (Authenticated) ====================
 
 @router.get(
     "/{ticket_id}/messages",
     response_model=TicketMessagesListResponse,
     status_code=status.HTTP_200_OK,
-    responses={
-        200: {
-            "description": "Messages retrieved successfully",
-            "model": TicketMessagesListResponse
-        },
-        401: {
-            "description": "Unauthorized"
-        },
-        403: {
-            "description": "Forbidden - No permission to view this ticket"
-        },
-        404: {
-            "description": "Ticket not found"
-        },
-        422: {
-            "description": "Validation Error"
-        }
-    },
     summary="Get Ticket Messages",
-    description="Retrieves all messages/chat for a specific ticket."
+    description="Get messages for a ticket (only your tickets)."
 )
 async def get_ticket_messages(
     ticket_id: UUID,
@@ -803,7 +726,7 @@ async def get_ticket_messages(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
-    """Get ticket messages (chat history)"""
+    """Get ticket messages"""
     ticket_service = TicketService(db)
     user_roles = [role.name for role in current_user.roles]
     
@@ -838,119 +761,60 @@ async def get_ticket_messages(
     )
 
 
-# ✅ دمج رفع الملفات مع الرسائل (Authenticated Users)
 @router.post(
     "/{ticket_id}/messages",
     response_model=TicketMessageAddedResponse,
     status_code=status.HTTP_201_CREATED,
-    responses={
-        201: {
-            "description": "Message added successfully",
-            "model": TicketMessageAddedResponse
-        },
-        400: {
-            "description": "Bad Request - Closed ticket, no content, or file validation error"
-        },
-        401: {
-            "description": "Unauthorized"
-        },
-        403: {
-            "description": "Forbidden - Not assigned to you"
-        },
-        404: {
-            "description": "Ticket not found"
-        },
-        422: {
-            "description": "Validation Error"
-        }
-    },
     summary="Add Message to Ticket",
     description="""
-    Add a new message/note to a ticket with optional file attachments (authenticated users).
+    Add message to ticket with optional files (authenticated).
     
-    **Options**:
-    - Message only (no files)
-    - Files only (no message)
-    - Message + Files
+    **Content-Type**: multipart/form-data
     
-    **File Upload Rules**:
-    - Max 5 files per message
-    - Max 10 MB per file
-    - Allowed: jpg, jpeg, png, gif, pdf, doc, docx, txt, csv, xlsx
+    **Fields**:
+    - message_text: Message text (optional if files provided)
+    - is_internal_note: true/false (default: false)
+    - files: File attachments (optional if message provided)
+    
+    **Rules**:
+    - Must provide message OR files OR both
+    - Max 5 files, 10 MB each
     """
 )
-async def create_ticket_message_with_files(
+async def create_ticket_message(
     ticket_id: UUID,
-    message_text: Optional[str] = Form(None, max_length=5000, description="Message text (optional)"),
-    is_internal_note: bool = Form(False, description="Internal note (not visible to customer)"),
-    files: List[UploadFile] = File(None, description="Attachments (optional, max 5 files, 10 MB each)"),
+    request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
-    """Add message with optional files to ticket (authenticated)"""
-    import shutil
-    from pathlib import Path
-    import time
+    """Add message to ticket"""
     
+    # Parse form data
+    form_data = await parse_form_with_files(request)
+    
+    message_text = form_data["message_text"]
+    is_internal_note = form_data["is_internal_note"]
+    files = form_data["files"]
+    
+    # Check content
+    has_message = bool(message_text)
+    has_files = len(files) > 0
+    
+    if not has_message and not has_files:
+        raise BadRequestException(
+            "Must provide either a message, files, or both"
+        )
+    
+    # Process files
+    attachments = await save_uploaded_files(files, ticket_id)
+    
+    # Final message
+    final_message = message_text if has_message else "[File(s) attached]"
+    
+    # Create message
     ticket_service = TicketService(db)
     user_roles = [role.name for role in current_user.roles]
     
-    # ✅ Validate: must have message OR files (or both)
-    has_message = message_text and message_text.strip()
-    has_files = files and files[0].filename
-    
-    if not has_message and not has_files:
-        raise BadRequestException("Must provide either a message or files (or both)")
-    
-    # Default message if only files
-    final_message = message_text.strip() if has_message else "[File(s) attached]"
-    
-    # Validate and save files
-    attachments = []
-    
-    if has_files:
-        if len(files) > 5:
-            raise BadRequestException("Maximum 5 files allowed per message")
-        
-        upload_dir = Path("uploads/tickets") / str(ticket_id) / "messages"
-        upload_dir.mkdir(parents=True, exist_ok=True)
-        
-        allowed_extensions = {'.jpg', '.jpeg', '.png', '.gif', '.pdf', '.doc', '.docx', '.txt', '.csv', '.xlsx'}
-        MAX_FILE_SIZE = 10 * 1024 * 1024
-        
-        for file in files:
-            if not file.filename:
-                continue
-                
-            file.file.seek(0, 2)
-            file_size = file.file.tell()
-            file.file.seek(0)
-            
-            if file_size > MAX_FILE_SIZE:
-                raise BadRequestException(f"File '{file.filename}' exceeds 10 MB limit")
-            
-            file_extension = Path(file.filename).suffix.lower()
-            
-            if file_extension not in allowed_extensions:
-                raise BadRequestException(f"File type {file_extension} not allowed")
-            
-            timestamp = int(time.time() * 1000)
-            safe_filename = f"{timestamp}_{file.filename}"
-            file_path = upload_dir / safe_filename
-            
-            with file_path.open("wb") as buffer:
-                shutil.copyfileobj(file.file, buffer)
-            
-            attachments.append({
-                "filename": file.filename,
-                "file_path": str(file_path),
-                "file_size": file_size,
-                "content_type": file.content_type or "application/octet-stream"
-            })
-            
-            logger.info(f"File uploaded: {file_path}")
-    
-    # ✅ تعديل Service call لإضافة attachments
     result = await ticket_service.create_ticket_message_with_attachments(
         ticket_id=ticket_id,
         message_text=final_message,
@@ -972,38 +836,23 @@ async def create_ticket_message_with_files(
     "/admin/all",
     response_model=TicketSimpleListResponse,
     status_code=status.HTTP_200_OK,
-    responses={
-        200: {
-            "description": "Tickets retrieved successfully",
-            "model": TicketSimpleListResponse
-        },
-        401: {
-            "description": "Unauthorized"
-        },
-        403: {
-            "description": "Forbidden - Admin only"
-        },
-        422: {
-            "description": "Validation Error"
-        }
-    },
     summary="Get All Tickets (Admin)",
-    description="Retrieves all tickets with filters. Admin only. Returns simplified response."
+    description="Get all tickets with filters. Admin only."
 )
 async def get_all_tickets_admin(
     page: int = Query(1, ge=1),
     limit: int = Query(10, ge=1, le=100),
-    status: Optional[TicketStatus] = Query(None, description="Filter by status"),
-    priority: Optional[TicketPriority] = Query(None, description="Filter by priority"),
-    ticket_type: Optional[TicketType] = Query(None, description="Filter by type"),
-    is_closed: Optional[bool] = Query(None, description="Filter by closed status"),
-    assignee_id: Optional[UUID] = Query(None, description="Filter by assignee"),
-    sort_by: str = Query("created_at", description="Sort by: created_at, updated_at, priority, status, title, customer_name"),
-    search: Optional[str] = Query(None, min_length=2, description="Search in title, customer info"),
+    status: Optional[TicketStatus] = Query(None),
+    priority: Optional[TicketPriority] = Query(None),
+    ticket_type: Optional[TicketType] = Query(None),
+    is_closed: Optional[bool] = Query(None),
+    assignee_id: Optional[UUID] = Query(None),
+    sort_by: str = Query("created_at"),
+    search: Optional[str] = Query(None, min_length=2),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_admin)
 ):
-    """Get all tickets (Admin only) with filters"""
+    """Get all tickets (Admin)"""
     ticket_service = TicketService(db)
     
     tickets, total = await ticket_service.get_all_tickets_admin(
@@ -1032,32 +881,16 @@ async def get_all_tickets_admin(
     "/admin/{ticket_id}",
     response_model=TicketDetailedResponse,
     status_code=status.HTTP_200_OK,
-    responses={
-        200: {
-            "description": "Ticket details retrieved successfully",
-            "model": TicketDetailedResponse
-        },
-        401: {
-            "description": "Unauthorized"
-        },
-        403: {
-            "description": "Forbidden - Admin only"
-        },
-        404: {
-            "description": "Ticket not found"
-        }
-    },
-    summary="Get Ticket Details (Admin - Full Details)",
-    description="Retrieves complete ticket information with ALL fields. Admin only."
+    summary="Get Ticket Details (Admin)",
+    description="Get complete ticket details. Admin only."
 )
 async def get_ticket_details_admin(
     ticket_id: UUID,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_admin)
 ):
-    """Get ticket details with ALL fields (Admin only)"""
+    """Get ticket details (Admin)"""
     ticket_service = TicketService(db)
-    
     ticket = await ticket_service.get_ticket_details_admin(ticket_id)
     
     ticket_dict = {
@@ -1095,30 +928,15 @@ async def get_ticket_details_admin(
     "/admin/{ticket_id}",
     response_model=TicketDeletedResponse,
     status_code=status.HTTP_200_OK,
-    responses={
-        200: {
-            "description": "Ticket deleted successfully",
-            "model": TicketDeletedResponse
-        },
-        401: {
-            "description": "Unauthorized"
-        },
-        403: {
-            "description": "Forbidden - Admin only"
-        },
-        404: {
-            "description": "Ticket not found"
-        }
-    },
     summary="Delete Ticket (Admin)",
-    description="Delete a ticket (soft delete). Admin only."
+    description="Soft delete ticket. Admin only."
 )
 async def delete_ticket_admin(
     ticket_id: UUID,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_admin)
 ):
-    """Delete ticket (Admin only - soft delete)"""
+    """Delete ticket (Admin)"""
     ticket_service = TicketService(db)
     
     result = await ticket_service.delete_ticket_admin(
@@ -1136,28 +954,14 @@ async def delete_ticket_admin(
     "/admin/statistics",
     response_model=TicketStatistics,
     status_code=status.HTTP_200_OK,
-    responses={
-        200: {
-            "description": "Statistics retrieved successfully",
-            "model": TicketStatistics
-        },
-        401: {
-            "description": "Unauthorized"
-        },
-        403: {
-            "description": "Forbidden - Admin only"
-        }
-    },
     summary="Get Ticket Statistics (Admin)",
-    description="Get comprehensive ticket statistics. Admin only."
+    description="Get ticket statistics. Admin only."
 )
 async def get_ticket_statistics_admin(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_admin)
 ):
-    """Get ticket statistics (Admin only)"""
+    """Get ticket statistics"""
     ticket_service = TicketService(db)
-    
     stats = await ticket_service.get_ticket_statistics_admin()
-    
     return TicketStatistics(**stats)
