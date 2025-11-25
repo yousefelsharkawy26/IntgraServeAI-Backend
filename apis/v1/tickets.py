@@ -94,7 +94,7 @@ async def create_external_ticket(
             "model": TicketMessageAddedResponse
         },
         400: {
-            "description": "Bad Request - Email mismatch, closed ticket, etc."
+            "description": "Bad Request - Email mismatch, closed ticket, or no content"
         },
         404: {
             "description": "Ticket not found"
@@ -108,6 +108,11 @@ async def create_external_ticket(
     Add a message to ticket from external customer with optional file attachments.
     No authentication required.
     
+    **Options**:
+    - Message only (no files)
+    - Files only (no message)
+    - Message + Files
+    
     **File Upload Rules**:
     - Max 5 files per message
     - Max 10 MB per file
@@ -118,7 +123,7 @@ async def create_external_message_with_files(
     ticket_id: UUID,
     customer_email: EmailStr = Form(..., description="Customer email"),
     customer_name: str = Form(..., min_length=2, max_length=255, description="Customer name"),
-    message_text: str = Form(..., min_length=1, max_length=5000, description="Message text"),
+    message_text: Optional[str] = Form(None, max_length=5000, description="Message text (optional)"),
     files: List[UploadFile] = File(None, description="Attachments (optional, max 5 files, 10 MB each)"),
     db: AsyncSession = Depends(get_db)
 ):
@@ -129,10 +134,20 @@ async def create_external_message_with_files(
     
     ticket_service = TicketService(db)
     
+    # ✅ Validate: must have message OR files (or both)
+    has_message = message_text and message_text.strip()
+    has_files = files and files[0].filename
+    
+    if not has_message and not has_files:
+        raise BadRequestException("Must provide either a message or files (or both)")
+    
+    # Default message if only files
+    final_message = message_text.strip() if has_message else "[File(s) attached]"
+    
     # Validate and save files
     attachments = []
     
-    if files and files[0].filename:
+    if has_files:
         if len(files) > 5:
             raise BadRequestException("Maximum 5 files allowed per message")
         
@@ -178,7 +193,7 @@ async def create_external_message_with_files(
         ticket_id=ticket_id,
         customer_email=customer_email,
         customer_name=customer_name,
-        message_text=message_text.strip(),
+        message_text=final_message,
         attachments=attachments if attachments else None
     )
     
@@ -823,6 +838,7 @@ async def get_ticket_messages(
     )
 
 
+# ✅ دمج رفع الملفات مع الرسائل (Authenticated Users)
 @router.post(
     "/{ticket_id}/messages",
     response_model=TicketMessageAddedResponse,
@@ -833,7 +849,7 @@ async def get_ticket_messages(
             "model": TicketMessageAddedResponse
         },
         400: {
-            "description": "Bad Request - Closed or canceled ticket"
+            "description": "Bad Request - Closed ticket, no content, or file validation error"
         },
         401: {
             "description": "Unauthorized"
@@ -849,22 +865,97 @@ async def get_ticket_messages(
         }
     },
     summary="Add Message to Ticket",
-    description="Add a new message/note to a ticket (authenticated users)."
+    description="""
+    Add a new message/note to a ticket with optional file attachments (authenticated users).
+    
+    **Options**:
+    - Message only (no files)
+    - Files only (no message)
+    - Message + Files
+    
+    **File Upload Rules**:
+    - Max 5 files per message
+    - Max 10 MB per file
+    - Allowed: jpg, jpeg, png, gif, pdf, doc, docx, txt, csv, xlsx
+    """
 )
-async def create_ticket_message(
+async def create_ticket_message_with_files(
     ticket_id: UUID,
-    message_data: TicketMessageCreate,
+    message_text: Optional[str] = Form(None, max_length=5000, description="Message text (optional)"),
+    is_internal_note: bool = Form(False, description="Internal note (not visible to customer)"),
+    files: List[UploadFile] = File(None, description="Attachments (optional, max 5 files, 10 MB each)"),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
-    """Add a message to ticket (authenticated)"""
+    """Add message with optional files to ticket (authenticated)"""
+    import shutil
+    from pathlib import Path
+    import time
+    
     ticket_service = TicketService(db)
     user_roles = [role.name for role in current_user.roles]
     
-    result = await ticket_service.create_ticket_message(
+    # ✅ Validate: must have message OR files (or both)
+    has_message = message_text and message_text.strip()
+    has_files = files and files[0].filename
+    
+    if not has_message and not has_files:
+        raise BadRequestException("Must provide either a message or files (or both)")
+    
+    # Default message if only files
+    final_message = message_text.strip() if has_message else "[File(s) attached]"
+    
+    # Validate and save files
+    attachments = []
+    
+    if has_files:
+        if len(files) > 5:
+            raise BadRequestException("Maximum 5 files allowed per message")
+        
+        upload_dir = Path("uploads/tickets") / str(ticket_id) / "messages"
+        upload_dir.mkdir(parents=True, exist_ok=True)
+        
+        allowed_extensions = {'.jpg', '.jpeg', '.png', '.gif', '.pdf', '.doc', '.docx', '.txt', '.csv', '.xlsx'}
+        MAX_FILE_SIZE = 10 * 1024 * 1024
+        
+        for file in files:
+            if not file.filename:
+                continue
+                
+            file.file.seek(0, 2)
+            file_size = file.file.tell()
+            file.file.seek(0)
+            
+            if file_size > MAX_FILE_SIZE:
+                raise BadRequestException(f"File '{file.filename}' exceeds 10 MB limit")
+            
+            file_extension = Path(file.filename).suffix.lower()
+            
+            if file_extension not in allowed_extensions:
+                raise BadRequestException(f"File type {file_extension} not allowed")
+            
+            timestamp = int(time.time() * 1000)
+            safe_filename = f"{timestamp}_{file.filename}"
+            file_path = upload_dir / safe_filename
+            
+            with file_path.open("wb") as buffer:
+                shutil.copyfileobj(file.file, buffer)
+            
+            attachments.append({
+                "filename": file.filename,
+                "file_path": str(file_path),
+                "file_size": file_size,
+                "content_type": file.content_type or "application/octet-stream"
+            })
+            
+            logger.info(f"File uploaded: {file_path}")
+    
+    # ✅ تعديل Service call لإضافة attachments
+    result = await ticket_service.create_ticket_message_with_attachments(
         ticket_id=ticket_id,
-        message_text=message_data.message_text,
-        is_internal_note=message_data.is_internal_note,
+        message_text=final_message,
+        is_internal_note=is_internal_note,
+        attachments=attachments if attachments else None,
         current_user_id=current_user.id,
         user_roles=user_roles
     )
@@ -872,92 +963,6 @@ async def create_ticket_message(
     return TicketMessageAddedResponse(
         message=result["message"],
         message_id=result["message_id"]
-    )
-
-
-@router.post(
-    "/{ticket_id}/upload",
-    response_model=FileUploadResponse,
-    status_code=status.HTTP_201_CREATED,
-    responses={
-        201: {
-            "description": "File uploaded successfully",
-            "model": FileUploadResponse
-        },
-        400: {
-            "description": "Bad Request - File too large or invalid type"
-        },
-        401: {
-            "description": "Unauthorized"
-        },
-        403: {
-            "description": "Forbidden - No permission"
-        },
-        404: {
-            "description": "Ticket not found"
-        }
-    },
-    summary="Upload File to Ticket",
-    description="""
-    Upload attachment (image, document) to ticket.
-    
-    **Rules**:
-    - Max file size: 10 MB
-    - Allowed types: jpg, jpeg, png, gif, pdf, doc, docx, txt, csv, xlsx
-    """
-)
-async def upload_ticket_file(
-    ticket_id: UUID,
-    file: UploadFile = File(...),
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_active_user)
-):
-    """Upload file to ticket"""
-    import shutil
-    from pathlib import Path
-    import time
-    
-    MAX_FILE_SIZE = 10 * 1024 * 1024
-    file.file.seek(0, 2)
-    file_size = file.file.tell()
-    file.file.seek(0)
-    
-    if file_size > MAX_FILE_SIZE:
-        raise BadRequestException("File size exceeds 10 MB limit")
-    
-    allowed_extensions = {'.jpg', '.jpeg', '.png', '.gif', '.pdf', '.doc', '.docx', '.txt', '.csv', '.xlsx'}
-    file_extension = Path(file.filename).suffix.lower()
-    
-    if file_extension not in allowed_extensions:
-        raise BadRequestException(f"File type {file_extension} not allowed")
-    
-    ticket_service = TicketService(db)
-    user_roles = [role.name for role in current_user.roles]
-    
-    # Verify access
-    await ticket_service.get_ticket_details(
-        ticket_id=ticket_id,
-        current_user_id=current_user.id,
-        user_roles=user_roles
-    )
-    
-    upload_dir = Path("uploads/tickets") / str(ticket_id)
-    upload_dir.mkdir(parents=True, exist_ok=True)
-    
-    timestamp = int(time.time())
-    safe_filename = f"{timestamp}_{file.filename}"
-    file_path = upload_dir / safe_filename
-    
-    with file_path.open("wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
-    
-    logger.info(f"File uploaded: {file_path}")
-    
-    return FileUploadResponse(
-        filename=file.filename,
-        file_path=str(file_path),
-        file_size=file_size,
-        content_type=file.content_type or "application/octet-stream"
     )
 
 

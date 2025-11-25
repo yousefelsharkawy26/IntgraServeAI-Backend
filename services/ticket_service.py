@@ -959,17 +959,18 @@ class TicketService:
         
         return messages, total
     
-    # ==================== Create Ticket Message (Authenticated) ====================
+    # ==================== Create Ticket Message (Authenticated - with attachments) ====================
     
-    async def create_ticket_message(
+    async def create_ticket_message_with_attachments(
         self,
         ticket_id: UUID,
         message_text: str,
         is_internal_note: bool,
+        attachments: Optional[List[dict]],
         current_user_id: UUID,
         user_roles: List[str]
     ) -> dict:
-        """Create a new message in ticket (authenticated)"""
+        """Create a new message in ticket with attachments (authenticated)"""
         # Verify user can access this ticket
         ticket = await self.get_ticket_details(ticket_id, current_user_id, user_roles)
         
@@ -1000,7 +1001,7 @@ class TicketService:
             sender_email=user.email if user else None,
             message_text=message_text,
             is_internal_note=is_internal_note,
-            attachments=None,
+            attachments=attachments,  # ✅ أضف attachments
             created_at=now
         )
         

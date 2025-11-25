@@ -141,8 +141,9 @@ class TicketCancel(BaseModel):
 
 # ==================== Message Schemas ====================
 
+# ✅ Schema للرسائل بدون ملفات (JSON request) - اختياري
 class TicketMessageCreate(BaseModel):
-    """Create a new message in ticket (Authenticated)"""
+    """Create a new message in ticket (JSON - no files)"""
     message_text: str = Field(
         ...,
         min_length=1,
@@ -169,6 +170,26 @@ class TicketMessageCreate(BaseModel):
     )
 
 
+# ✅ Attachment schema
+class AttachmentInfo(BaseModel):
+    """Attachment information"""
+    filename: str = Field(..., description="Original filename")
+    file_path: str = Field(..., description="Stored file path")
+    file_size: int = Field(..., description="File size in bytes")
+    content_type: str = Field(..., description="MIME type")
+    
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "filename": "screenshot.png",
+                "file_path": "uploads/tickets/ticket-uuid/messages/1234567890_screenshot.png",
+                "file_size": 245678,
+                "content_type": "image/png"
+            }
+        }
+    )
+
+
 class TicketMessageResponse(BaseModel):
     """Ticket message response"""
     id: UUID
@@ -178,10 +199,32 @@ class TicketMessageResponse(BaseModel):
     sender_email: Optional[str] = None
     message_text: str
     is_internal_note: bool
-    attachments: Optional[dict] = None
+    attachments: Optional[List[AttachmentInfo]] = None
     created_at: datetime
     
-    model_config = ConfigDict(from_attributes=True)
+    model_config = ConfigDict(
+        from_attributes=True,
+        json_schema_extra={
+            "example": {
+                "id": "msg-uuid-1",
+                "ticket_id": "ticket-uuid-1",
+                "sender_type": "customer",
+                "sender_name": "Ahmed Mohamed",
+                "sender_email": "customer@example.com",
+                "message_text": "I cannot login",
+                "is_internal_note": False,
+                "attachments": [
+                    {
+                        "filename": "screenshot.png",
+                        "file_path": "uploads/tickets/ticket-uuid/messages/screenshot.png",
+                        "file_size": 245678,
+                        "content_type": "image/png"
+                    }
+                ],
+                "created_at": "2025-01-20T10:30:00Z"
+            }
+        }
+    )
 
 
 class TicketMessagesListResponse(BaseModel):
@@ -333,6 +376,8 @@ class TicketDetailedResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+# ==================== Action Response Schemas ====================
+
 class ExternalTicketCreateResponse(BaseModel):
     """Response after creating external ticket"""
     message: str
@@ -482,15 +527,29 @@ class TicketDeletedResponse(BaseModel):
     )
 
 
+# ==================== File Upload Response ====================
+
 class FileUploadResponse(BaseModel):
-    """File upload response"""
+    """File upload response (legacy - kept for compatibility)"""
     filename: str
     file_path: str
     file_size: int
     content_type: str
     
-    model_config = ConfigDict(from_attributes=True)
+    model_config = ConfigDict(
+        from_attributes=True,
+        json_schema_extra={
+            "example": {
+                "filename": "screenshot.png",
+                "file_path": "uploads/tickets/ticket-uuid/screenshot.png",
+                "file_size": 245678,
+                "content_type": "image/png"
+            }
+        }
+    )
 
+
+# ==================== Statistics ====================
 
 class TicketStatistics(BaseModel):
     """Ticket statistics for admin dashboard"""
@@ -534,4 +593,35 @@ class TicketStatistics(BaseModel):
     tickets_this_week: int
     tickets_this_month: int
     
-    model_config = ConfigDict(from_attributes=True)
+    model_config = ConfigDict(
+        from_attributes=True,
+        json_schema_extra={
+            "example": {
+                "total_tickets": 150,
+                "open_tickets": 25,
+                "in_progress_tickets": 40,
+                "pending_tickets": 10,
+                "escalated_tickets": 5,
+                "resolved_tickets": 50,
+                "closed_tickets": 15,
+                "canceled_tickets": 5,
+                "urgent_tickets": 3,
+                "high_priority_tickets": 20,
+                "medium_priority_tickets": 80,
+                "low_priority_tickets": 47,
+                "tech_tickets": 60,
+                "support_tickets": 90,
+                "assigned_tickets": 100,
+                "unassigned_tickets": 50,
+                "overdue_tickets": 8,
+                "due_soon_tickets": 12,
+                "ai_created_tickets": 30,
+                "manual_created_tickets": 120,
+                "avg_resolution_time_hours": 4.5,
+                "avg_response_time_hours": 0.5,
+                "tickets_today": 12,
+                "tickets_this_week": 45,
+                "tickets_this_month": 150
+            }
+        }
+    )
