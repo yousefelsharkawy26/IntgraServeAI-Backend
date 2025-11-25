@@ -77,11 +77,7 @@ class TicketStatusUpdate(BaseModel):
 
 
 class TicketReassign(BaseModel):
-    """Reassign ticket to role (escalate)"""
-    role_id: UUID = Field(
-        ..., 
-        description="Role ID to escalate to"
-    )
+    """Reassign ticket - Toggle between Tech and Support"""
     reason: Optional[str] = Field(
         None, 
         max_length=500, 
@@ -91,7 +87,6 @@ class TicketReassign(BaseModel):
     model_config = ConfigDict(
         json_schema_extra={
             "example": {
-                "role_id": "123e4567-e89b-12d3-a456-426614174000",
                 "reason": "Escalating to technical team"
             }
         }
@@ -174,41 +169,6 @@ class TicketMessageCreate(BaseModel):
     )
 
 
-class ExternalMessageCreate(BaseModel):
-    """Create message from external customer (no auth)"""
-    customer_email: EmailStr = Field(
-        ...,
-        description="Customer email (must match ticket owner)"
-    )
-    customer_name: str = Field(
-        ...,
-        min_length=2,
-        max_length=255,
-        description="Customer name"
-    )
-    message_text: str = Field(
-        ...,
-        min_length=1,
-        max_length=5000,
-        description="Message text"
-    )
-    
-    @field_validator('message_text', 'customer_name')
-    @classmethod
-    def strip_whitespace(cls, v: str) -> str:
-        return v.strip()
-    
-    model_config = ConfigDict(
-        json_schema_extra={
-            "example": {
-                "customer_email": "customer@example.com",
-                "customer_name": "Ahmed Mohamed",
-                "message_text": "I tried clearing the cache but still having the same issue."
-            }
-        }
-    )
-
-
 class TicketMessageResponse(BaseModel):
     """Ticket message response"""
     id: UUID
@@ -236,8 +196,89 @@ class TicketMessagesListResponse(BaseModel):
 
 # ==================== Response Schemas ====================
 
+# ✅ Simplified response for lists (Admin All, My Tickets, Unassigned)
+class TicketSimpleResponse(BaseModel):
+    """Simplified ticket response for lists"""
+    id: UUID
+    ticket_type: TicketType
+    title: str
+    customer_email: EmailStr
+    customer_name: str
+    status: TicketStatus
+    priority: TicketPriority
+    assignee_id: Optional[UUID] = None
+    assignee_name: Optional[str] = None
+    created_at: datetime
+    
+    model_config = ConfigDict(
+        from_attributes=True,
+        json_schema_extra={
+            "example": {
+                "id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                "ticket_type": "support",
+                "title": "Cannot login to my account",
+                "customer_email": "customer@example.com",
+                "customer_name": "Ahmed Mohamed",
+                "status": "open",
+                "priority": "high",
+                "assignee_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                "assignee_name": "John Doe",
+                "created_at": "2025-01-20T10:30:00Z"
+            }
+        }
+    )
+
+
+class TicketSimpleListResponse(BaseModel):
+    """Paginated list of simplified tickets"""
+    page: int
+    limit: int
+    total: int
+    tickets: List[TicketSimpleResponse]
+    
+    model_config = ConfigDict(from_attributes=True)
+
+
+# ✅ External customer simplified response
+class ExternalTicketSimpleResponse(BaseModel):
+    """Simplified ticket response for external customers"""
+    id: UUID
+    title: str
+    status: TicketStatus
+    priority: TicketPriority
+    assignee_name: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
+    
+    model_config = ConfigDict(
+        from_attributes=True,
+        json_schema_extra={
+            "example": {
+                "id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                "title": "Cannot login to my account",
+                "status": "in_progress",
+                "priority": "high",
+                "assignee_name": "John Doe",
+                "created_at": "2025-01-20T10:30:00Z",
+                "updated_at": "2025-01-20T14:20:00Z"
+            }
+        }
+    )
+
+
+class ExternalTicketListResponse(BaseModel):
+    """Paginated list of simplified tickets for external customers"""
+    page: int
+    limit: int
+    total: int
+    tickets: List[ExternalTicketSimpleResponse]
+    
+    model_config = ConfigDict(from_attributes=True)
+
+
+# ✅ Full response for single ticket (user view)
 class TicketResponse(BaseModel):
-    """Basic ticket information"""
+    """Standard ticket response for single ticket view"""
     id: UUID
     ticket_type: TicketType
     title: str
@@ -260,6 +301,7 @@ class TicketResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+# ✅ Full detailed response for Admin single ticket view
 class TicketDetailedResponse(BaseModel):
     """Detailed ticket information with ALL fields (Admin only)"""
     id: UUID
@@ -291,30 +333,153 @@ class TicketDetailedResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
-class TicketListResponse(BaseModel):
-    """Paginated list of tickets"""
-    page: int
-    limit: int
-    total: int
-    tickets: List[TicketResponse]
-    
-    model_config = ConfigDict(from_attributes=True)
-
-
 class ExternalTicketCreateResponse(BaseModel):
     """Response after creating external ticket"""
     message: str
     ticket_id: UUID
     
-    model_config = ConfigDict(from_attributes=True)
+    model_config = ConfigDict(
+        from_attributes=True,
+        json_schema_extra={
+            "example": {
+                "message": "Ticket created successfully. We will reply as soon as possible.",
+                "ticket_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+            }
+        }
+    )
 
 
-class ExternalMessageWithFilesResponse(BaseModel):
-    """Response after creating external message with files"""
+class TicketMessageAddedResponse(BaseModel):
+    """Response after adding message"""
     message: str
-    attachments: Optional[List[dict]] = None
+    message_id: UUID
     
-    model_config = ConfigDict(from_attributes=True)
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "message": "Message added successfully",
+                "message_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+            }
+        }
+    )
+
+
+class TicketAssignedResponse(BaseModel):
+    """Response after assigning ticket"""
+    message: str
+    ticket_id: UUID
+    assignee_name: str
+    
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "message": "Ticket assigned to you successfully",
+                "ticket_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                "assignee_name": "John Doe"
+            }
+        }
+    )
+
+
+class TicketStatusUpdateResponse(BaseModel):
+    """Response after updating ticket status"""
+    message: str
+    ticket_id: UUID
+    old_status: TicketStatus
+    new_status: TicketStatus
+    
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "message": "Ticket status updated successfully",
+                "ticket_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                "old_status": "open",
+                "new_status": "in_progress"
+            }
+        }
+    )
+
+
+class TicketReassignResponse(BaseModel):
+    """Response after reassigning ticket"""
+    message: str
+    ticket_id: UUID
+    new_ticket_type: TicketType
+    
+    model_config = ConfigDict(
+        from_attributes=True,
+        json_schema_extra={
+            "example": {
+                "message": "Ticket transferred to Tech team (unassigned)",
+                "ticket_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                "new_ticket_type": "tech"
+            }
+        }
+    )
+
+
+class TicketResolvedResponse(BaseModel):
+    """Response after resolving ticket"""
+    message: str
+    ticket_id: UUID
+    resolved_at: datetime
+    
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "message": "Ticket resolved successfully",
+                "ticket_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                "resolved_at": "2025-01-20T15:30:00Z"
+            }
+        }
+    )
+
+
+class TicketCanceledResponse(BaseModel):
+    """Response after canceling ticket"""
+    message: str
+    ticket_id: UUID
+    
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "message": "Ticket canceled successfully",
+                "ticket_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+            }
+        }
+    )
+
+
+class TicketClosedResponse(BaseModel):
+    """Response after closing ticket"""
+    message: str
+    ticket_id: UUID
+    closed_at: datetime
+    
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "message": "Ticket closed successfully",
+                "ticket_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                "closed_at": "2025-01-20T16:00:00Z"
+            }
+        }
+    )
+
+
+class TicketDeletedResponse(BaseModel):
+    """Response after deleting ticket"""
+    message: str
+    ticket_id: UUID
+    
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "message": "Ticket deleted successfully",
+                "ticket_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+            }
+        }
+    )
 
 
 class FileUploadResponse(BaseModel):
@@ -323,31 +488,6 @@ class FileUploadResponse(BaseModel):
     file_path: str
     file_size: int
     content_type: str
-    
-    model_config = ConfigDict(from_attributes=True)
-
-
-class TicketSummaryResponse(BaseModel):
-    """Simplified ticket information for admin list"""
-    id: UUID
-    ticket_type: TicketType
-    title: str
-    status: TicketStatus
-    priority: TicketPriority
-    customer_name: str
-    assignee_id: Optional[UUID] = None
-    assignee_name: Optional[str] = None
-    created_at: datetime
-    
-    model_config = ConfigDict(from_attributes=True)
-
-
-class TicketSummaryListResponse(BaseModel):
-    """Paginated list of simplified tickets"""
-    page: int
-    limit: int
-    total: int
-    tickets: List[TicketSummaryResponse]
     
     model_config = ConfigDict(from_attributes=True)
 

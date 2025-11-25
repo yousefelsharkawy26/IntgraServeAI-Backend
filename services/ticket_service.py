@@ -9,7 +9,6 @@ from datetime import datetime, timedelta, timezone
 from models.ticket import Ticket, TicketStatus, TicketPriority, TicketType, TicketMessage, SenderType
 from models.user import User, Role
 from models.audit import AuditLog
-from utils.schemas.ticket_schemas import TicketResponse
 from utils.exceptions import (
     NotFoundException,
     ConflictException,
@@ -66,7 +65,7 @@ class TicketService:
         
         return ticket
     
-    # ==================== My Tickets with Filters & Sort ====================
+    # ==================== My Tickets (Simplified Response) ====================
     
     async def get_my_tickets(
         self,
@@ -78,8 +77,8 @@ class TicketService:
         priority: Optional[TicketPriority] = None,
         sort_by: str = "created_at",
         search: Optional[str] = None
-    ) -> Tuple[List[TicketResponse], int]:
-        """Get tickets assigned to current user with filters"""
+    ) -> Tuple[List[dict], int]:
+        """Get tickets assigned to current user with filters (Simplified Response)"""
         # Base query
         query = select(Ticket).options(
             selectinload(Ticket.assignee)
@@ -88,7 +87,7 @@ class TicketService:
             Ticket.is_active == True
         )
         
-        # ✅ Filter by ticket type based on roles (supports multiple roles)
+        # Filter by ticket type based on roles
         if "Admin" not in user_roles:
             has_tech = "Tech User" in user_roles
             has_support = "Support User" in user_roles
@@ -118,7 +117,6 @@ class TicketService:
             query = query.where(
                 or_(
                     Ticket.title.ilike(search_term),
-                    Ticket.description.ilike(search_term),
                     Ticket.customer_name.ilike(search_term),
                     Ticket.customer_email.ilike(search_term)
                 )
@@ -155,7 +153,6 @@ class TicketService:
             count_query = count_query.where(
                 or_(
                     Ticket.title.ilike(search_term),
-                    Ticket.description.ilike(search_term),
                     Ticket.customer_name.ilike(search_term),
                     Ticket.customer_email.ilike(search_term)
                 )
@@ -182,12 +179,26 @@ class TicketService:
         result = await self.db.execute(query)
         tickets = result.scalars().all()
         
-        # Convert to response format
-        ticket_responses = self._convert_to_responses(tickets)
+        # Convert to simplified dict
+        ticket_responses = []
+        for ticket in tickets:
+            ticket_dict = {
+                "id": ticket.id,
+                "ticket_type": ticket.ticket_type,
+                "title": ticket.title,
+                "customer_email": ticket.customer_email,
+                "customer_name": ticket.customer_name,
+                "status": ticket.status,
+                "priority": ticket.priority,
+                "assignee_id": ticket.assignee_id,
+                "assignee_name": ticket.assignee.full_name if ticket.assignee else None,
+                "created_at": ticket.created_at
+            }
+            ticket_responses.append(ticket_dict)
         
         return ticket_responses, total
     
-    # ==================== Unassigned Tickets with Filters & Sort ====================
+    # ==================== Unassigned Tickets (Simplified Response) ====================
     
     async def get_unassigned_tickets(
         self,
@@ -197,8 +208,8 @@ class TicketService:
         priority: Optional[TicketPriority] = None,
         sort_by: str = "priority",
         search: Optional[str] = None
-    ) -> Tuple[List[TicketResponse], int]:
-        """Get unassigned tickets with filters"""
+    ) -> Tuple[List[dict], int]:
+        """Get unassigned tickets with filters (Simplified Response)"""
         # Base query
         query = select(Ticket).where(
             Ticket.assignee_id == None,
@@ -206,7 +217,7 @@ class TicketService:
             Ticket.is_active == True
         )
         
-        # ✅ Filter by ticket type based on roles (supports multiple roles)
+        # Filter by ticket type based on roles
         if "Admin" not in user_roles:
             has_tech = "Tech User" in user_roles
             has_support = "Support User" in user_roles
@@ -233,7 +244,6 @@ class TicketService:
             query = query.where(
                 or_(
                     Ticket.title.ilike(search_term),
-                    Ticket.description.ilike(search_term),
                     Ticket.customer_name.ilike(search_term)
                 )
             )
@@ -268,7 +278,6 @@ class TicketService:
             count_query = count_query.where(
                 or_(
                     Ticket.title.ilike(search_term),
-                    Ticket.description.ilike(search_term),
                     Ticket.customer_name.ilike(search_term)
                 )
             )
@@ -292,12 +301,26 @@ class TicketService:
         result = await self.db.execute(query)
         tickets = result.scalars().all()
         
-        # Convert to response format
-        ticket_responses = self._convert_to_responses(tickets)
+        # Convert to simplified dict
+        ticket_responses = []
+        for ticket in tickets:
+            ticket_dict = {
+                "id": ticket.id,
+                "ticket_type": ticket.ticket_type,
+                "title": ticket.title,
+                "customer_email": ticket.customer_email,
+                "customer_name": ticket.customer_name,
+                "status": ticket.status,
+                "priority": ticket.priority,
+                "assignee_id": None,
+                "assignee_name": None,
+                "created_at": ticket.created_at
+            }
+            ticket_responses.append(ticket_dict)
         
         return ticket_responses, total
     
-    # ==================== Admin - Get All Tickets with Filters & Sort ====================
+    # ==================== Admin - Get All Tickets (Simplified Response) ====================
     
     async def get_all_tickets_admin(
         self,
@@ -310,8 +333,8 @@ class TicketService:
         assignee_id: Optional[UUID] = None,
         sort_by: str = "created_at",
         search: Optional[str] = None
-    ) -> Tuple[List[TicketResponse], int]:
-        """Get all tickets (Admin only) with comprehensive filters"""
+    ) -> Tuple[List[dict], int]:
+        """Get all tickets (Admin only) with simplified response"""
         # Base query
         query = select(Ticket).options(
             selectinload(Ticket.assignee)
@@ -339,7 +362,6 @@ class TicketService:
             query = query.where(
                 or_(
                     Ticket.title.ilike(search_term),
-                    Ticket.description.ilike(search_term),
                     Ticket.customer_name.ilike(search_term),
                     Ticket.customer_email.ilike(search_term),
                     Ticket.external_customer_id.ilike(search_term)
@@ -364,7 +386,6 @@ class TicketService:
             count_query = count_query.where(
                 or_(
                     Ticket.title.ilike(search_term),
-                    Ticket.description.ilike(search_term),
                     Ticket.customer_name.ilike(search_term),
                     Ticket.customer_email.ilike(search_term),
                     Ticket.external_customer_id.ilike(search_term)
@@ -393,8 +414,22 @@ class TicketService:
         result = await self.db.execute(query)
         tickets = result.scalars().all()
         
-        # Convert to response format
-        ticket_responses = self._convert_to_responses(tickets)
+        # Convert to simplified dict
+        ticket_responses = []
+        for ticket in tickets:
+            ticket_dict = {
+                "id": ticket.id,
+                "ticket_type": ticket.ticket_type,
+                "title": ticket.title,
+                "customer_email": ticket.customer_email,
+                "customer_name": ticket.customer_name,
+                "status": ticket.status,
+                "priority": ticket.priority,
+                "assignee_id": ticket.assignee_id,
+                "assignee_name": ticket.assignee.full_name if ticket.assignee else None,
+                "created_at": ticket.created_at
+            }
+            ticket_responses.append(ticket_dict)
         
         return ticket_responses, total
     
@@ -418,12 +453,11 @@ class TicketService:
         if not ticket:
             raise NotFoundException("Ticket not found")
         
-        # ✅ Validate access based on roles (supports multiple roles)
+        # Validate access based on roles
         if "Admin" not in user_roles:
             has_tech = "Tech User" in user_roles
             has_support = "Support User" in user_roles
             
-            # Check if user can access this ticket type
             can_access = False
             
             if ticket.ticket_type == TicketType.TECH and has_tech:
@@ -438,13 +472,13 @@ class TicketService:
         
         return ticket
     
-    # ==================== Get Ticket Details (Admin) ====================
+    # ==================== Get Ticket Details (Admin - Full Details) ====================
     
     async def get_ticket_details_admin(
         self,
         ticket_id: UUID
     ) -> Ticket:
-        """Get ticket details (Admin - no restrictions)"""
+        """Get ticket details (Admin - no restrictions, full details)"""
         result = await self.db.execute(
             select(Ticket)
             .options(selectinload(Ticket.assignee))
@@ -464,7 +498,7 @@ class TicketService:
         ticket_id: UUID,
         current_user_id: UUID,
         user_roles: List[str]
-    ) -> Ticket:
+    ) -> dict:
         """Self-assign an unassigned ticket"""
         # Get ticket with lock
         result = await self.db.execute(
@@ -494,7 +528,7 @@ class TicketService:
         if ticket.status != TicketStatus.OPEN:
             raise BadRequestException(f"Cannot assign ticket with status: {ticket.status.value}")
         
-        # ✅ Validate ticket type matches user roles (supports multiple roles)
+        # Validate ticket type matches user roles
         if "Admin" not in user_roles:
             has_tech = "Tech User" in user_roles
             has_support = "Support User" in user_roles
@@ -510,6 +544,12 @@ class TicketService:
                 raise BadRequestException(
                     f"You don't have permission to assign {ticket.ticket_type.value.upper()} tickets"
                 )
+        
+        # Get current user name
+        user_result = await self.db.execute(
+            select(User).where(User.id == current_user_id)
+        )
+        current_user = user_result.scalar_one_or_none()
         
         # Assign ticket
         now = datetime.now(timezone.utc)
@@ -531,15 +571,6 @@ class TicketService:
         )
         
         await self.db.commit()
-        await self.db.refresh(ticket)
-        
-        # Load assignee relationship
-        result = await self.db.execute(
-            select(Ticket)
-            .options(selectinload(Ticket.assignee))
-            .where(Ticket.id == ticket.id)
-        )
-        ticket = result.scalar_one()
         
         logger.info(f"Ticket {ticket.id} assigned to user {current_user_id}")
         
@@ -550,12 +581,16 @@ class TicketService:
                 customer_name=ticket.customer_name,
                 ticket_id=str(ticket.id),
                 ticket_title=ticket.title,
-                assignee_name=ticket.assignee.full_name
+                assignee_name=current_user.full_name if current_user else "Support Team"
             )
         except Exception as e:
             logger.error(f"Failed to send assignment email: {str(e)}")
         
-        return ticket
+        return {
+            "message": "Ticket assigned to you successfully",
+            "ticket_id": ticket.id,
+            "assignee_name": current_user.full_name if current_user else "Support Team"
+        }
     
     # ==================== Update Ticket Status ====================
     
@@ -566,7 +601,7 @@ class TicketService:
         notes: Optional[str],
         current_user_id: UUID,
         user_roles: List[str]
-    ) -> Ticket:
+    ) -> dict:
         """Update ticket status"""
         # Get ticket
         ticket = await self.get_ticket_details(ticket_id, current_user_id, user_roles)
@@ -600,7 +635,6 @@ class TicketService:
         )
         
         await self.db.commit()
-        await self.db.refresh(ticket)
         
         logger.info(f"Ticket {ticket.id} status updated from {old_status} to {new_status}")
         
@@ -624,22 +658,27 @@ class TicketService:
         except Exception as e:
             logger.error(f"Failed to send status update email: {str(e)}")
         
-        return ticket
+        return {
+            "message": "Ticket status updated successfully",
+            "ticket_id": ticket.id,
+            "old_status": old_status,
+            "new_status": new_status
+        }
     
-    # ==================== Reassign Ticket (by Role ID) - بدون قيود ====================
+    # ==================== Toggle Reassign Ticket (Tech <-> Support) - UNASSIGN ====================
     
-    async def reassign_ticket_by_role(
+    async def toggle_reassign_ticket(
         self,
         ticket_id: UUID,
-        target_role_id: UUID,
         reason: Optional[str],
         current_user_id: UUID,
         user_roles: List[str]
-    ) -> Ticket:
+    ) -> dict:
         """
-        Reassign ticket to a role (escalate)
+        Toggle reassign ticket between Tech and Support teams (Unassign)
         
-        ✅ يمكن تحويل أي تذكرة لأي role بدون قيود
+        - If current type is SUPPORT → change to TECH and UNASSIGN
+        - If current type is TECH → change to SUPPORT and UNASSIGN
         """
         # Get ticket
         ticket = await self.get_ticket_details(ticket_id, current_user_id, user_roles)
@@ -651,74 +690,62 @@ class TicketService:
         if ticket.status == TicketStatus.CANCELED:
             raise BadRequestException("Cannot reassign a canceled ticket")
         
+        if ticket.status == TicketStatus.RESOLVED:
+            raise BadRequestException("Cannot reassign a resolved ticket")
+        
         # Validate user can reassign
         if "Admin" not in user_roles:
             if ticket.assignee_id != current_user_id:
                 raise BadRequestException("You can only reassign tickets assigned to you")
         
-        # Get role by ID
-        result = await self.db.execute(
-            select(Role).where(Role.id == target_role_id)
-        )
-        role = result.scalar_one_or_none()
-        
-        if not role:
-            raise NotFoundException(f"Role not found")
-        
-        # Find active users with this role
-        result = await self.db.execute(
-            select(User)
-            .join(User.roles)
-            .where(Role.id == role.id, User.is_active == True)
-            .order_by(func.random())
-            .limit(1)
-        )
-        new_assignee = result.scalar_one_or_none()
-        
-        if not new_assignee:
-            raise NotFoundException(f"No active users found with role '{role.name}'")
-        
-        # ✅ لا يوجد validation على نوع التذكرة - يمكن تحويل أي تذكرة لأي role
-        
-        # Update ticket
+        # Determine new ticket type (Toggle)
+        old_ticket_type = ticket.ticket_type
         old_assignee_id = ticket.assignee_id
+        
+        if ticket.ticket_type == TicketType.SUPPORT:
+            new_ticket_type = TicketType.TECH
+            target_team = "Tech"
+        else:
+            new_ticket_type = TicketType.SUPPORT
+            target_team = "Support"
+        
+        # Update ticket - UNASSIGN
+        now = datetime.now(timezone.utc)
         ticket.previous_assignee_id = old_assignee_id
-        ticket.assignee_id = new_assignee.id
-        ticket.assigned_at = datetime.now(timezone.utc)
-        ticket.status = TicketStatus.ESCALATED
+        ticket.ticket_type = new_ticket_type
+        ticket.assignee_id = None
+        ticket.assigned_at = None
+        ticket.status = TicketStatus.OPEN
         ticket.escalation_reason = reason
-        ticket.updated_at = datetime.now(timezone.utc)
+        ticket.updated_at = now
         
         # Create audit log
         await self._create_audit_log(
             user_id=current_user_id,
-            action_type="REASSIGN",
+            action_type="TOGGLE_REASSIGN",
             target_table="tickets",
             target_record_id=ticket.id,
             changed_values={
-                "assignee_id": {
-                    "old": str(old_assignee_id) if old_assignee_id else None, 
-                    "new": str(new_assignee.id)
-                },
-                "target_role_id": str(target_role_id),
-                "target_role_name": role.name,
-                "new_assignee_name": new_assignee.full_name,
-                "ticket_type": ticket.ticket_type.value,
-                "status": {"old": ticket.status.value, "new": TicketStatus.ESCALATED.value},
+                "ticket_type": {"old": old_ticket_type.value, "new": new_ticket_type.value},
+                "assignee_id": {"old": str(old_assignee_id) if old_assignee_id else None, "new": None},
+                "status": {"old": ticket.status.value, "new": TicketStatus.OPEN.value},
+                "target_team": target_team,
                 "reason": reason
             }
         )
         
         await self.db.commit()
-        await self.db.refresh(ticket)
         
         logger.info(
-            f"Ticket {ticket.id} ({ticket.ticket_type.value.upper()}) "
-            f"reassigned to role '{role.name}' (ID: {role.id}) - "
-            f"assigned to {new_assignee.full_name}"
+            f"Ticket {ticket.id} toggled from {old_ticket_type.value.upper()} to "
+            f"{new_ticket_type.value.upper()} - now UNASSIGNED for {target_team} team"
         )
         
-        return ticket
+        return {
+            "message": f"Ticket transferred to {target_team} team (unassigned)",
+            "ticket_id": ticket.id,
+            "new_ticket_type": new_ticket_type
+        }
     
     # ==================== Resolve Ticket ====================
     
@@ -728,7 +755,7 @@ class TicketService:
         resolution_notes: str,
         current_user_id: UUID,
         user_roles: List[str]
-    ) -> Ticket:
+    ) -> dict:
         """Resolve ticket"""
         # Get ticket
         ticket = await self.get_ticket_details(ticket_id, current_user_id, user_roles)
@@ -750,10 +777,11 @@ class TicketService:
         
         # Update ticket
         old_status = ticket.status
+        now = datetime.now(timezone.utc)
         ticket.status = TicketStatus.RESOLVED
         ticket.resolution_notes = resolution_notes
-        ticket.resolved_at = datetime.now(timezone.utc)
-        ticket.updated_at = datetime.now(timezone.utc)
+        ticket.resolved_at = now
+        ticket.updated_at = now
         
         # Create audit log
         await self._create_audit_log(
@@ -768,7 +796,6 @@ class TicketService:
         )
         
         await self.db.commit()
-        await self.db.refresh(ticket)
         
         logger.info(f"Ticket {ticket.id} resolved by user {current_user_id}")
         
@@ -784,7 +811,11 @@ class TicketService:
         except Exception as e:
             logger.error(f"Failed to send resolution email: {str(e)}")
         
-        return ticket
+        return {
+            "message": "Ticket resolved successfully",
+            "ticket_id": ticket.id,
+            "resolved_at": now
+        }
     
     # ==================== Cancel Ticket ====================
     
@@ -794,7 +825,7 @@ class TicketService:
         cancellation_reason: str,
         current_user_id: UUID,
         user_roles: List[str]
-    ) -> Ticket:
+    ) -> dict:
         """Cancel ticket"""
         # Get ticket
         ticket = await self.get_ticket_details(ticket_id, current_user_id, user_roles)
@@ -830,11 +861,13 @@ class TicketService:
         )
         
         await self.db.commit()
-        await self.db.refresh(ticket)
         
         logger.info(f"Ticket {ticket.id} canceled by user {current_user_id}")
         
-        return ticket
+        return {
+            "message": "Ticket canceled successfully",
+            "ticket_id": ticket.id
+        }
     
     # ==================== Close Ticket ====================
     
@@ -843,7 +876,7 @@ class TicketService:
         ticket_id: UUID,
         current_user_id: UUID,
         user_roles: List[str]
-    ) -> Ticket:
+    ) -> dict:
         """Close ticket (only if resolved)"""
         # Get ticket
         ticket = await self.get_ticket_details(ticket_id, current_user_id, user_roles)
@@ -861,10 +894,11 @@ class TicketService:
                 raise BadRequestException("You can only close tickets assigned to you")
         
         # Update ticket
+        now = datetime.now(timezone.utc)
         ticket.status = TicketStatus.CLOSED
         ticket.is_closed = True
-        ticket.closed_at = datetime.now(timezone.utc)
-        ticket.updated_at = datetime.now(timezone.utc)
+        ticket.closed_at = now
+        ticket.updated_at = now
         
         # Create audit log
         await self._create_audit_log(
@@ -879,11 +913,14 @@ class TicketService:
         )
         
         await self.db.commit()
-        await self.db.refresh(ticket)
         
         logger.info(f"Ticket {ticket.id} closed by user {current_user_id}")
         
-        return ticket
+        return {
+            "message": "Ticket closed successfully",
+            "ticket_id": ticket.id,
+            "closed_at": now
+        }
     
     # ==================== Get Ticket Messages ====================
     
@@ -931,7 +968,7 @@ class TicketService:
         is_internal_note: bool,
         current_user_id: UUID,
         user_roles: List[str]
-    ) -> TicketMessage:
+    ) -> dict:
         """Create a new message in ticket (authenticated)"""
         # Verify user can access this ticket
         ticket = await self.get_ticket_details(ticket_id, current_user_id, user_roles)
@@ -991,7 +1028,10 @@ class TicketService:
             except Exception as e:
                 logger.error(f"Failed to send message notification email: {str(e)}")
         
-        return message
+        return {
+            "message": "Message added successfully",
+            "message_id": message.id
+        }
     
     # ==================== Create External Message (Public) ====================
     
@@ -1002,7 +1042,7 @@ class TicketService:
         customer_name: str,
         message_text: str,
         attachments: Optional[List[dict]] = None
-    ) -> TicketMessage:
+    ) -> dict:
         """Create message from external customer (no auth required)"""
         # Get ticket
         result = await self.db.execute(
@@ -1072,7 +1112,10 @@ class TicketService:
             except Exception as e:
                 logger.error(f"Failed to send notification to assignee: {str(e)}")
         
-        return message
+        return {
+            "message": "Message added successfully",
+            "message_id": message.id
+        }
     
     # ==================== External Customer - Get My Tickets ====================
     
@@ -1081,8 +1124,8 @@ class TicketService:
         customer_email: str,
         page: int = 1,
         limit: int = 10
-    ) -> Tuple[List[TicketResponse], int]:
-        """Get tickets for external customer by email (no auth required)"""
+    ) -> Tuple[List[dict], int]:
+        """Get tickets for external customer by email (no auth required) - Simplified"""
         # Query tickets for this customer email
         query = select(Ticket).options(
             selectinload(Ticket.assignee)
@@ -1108,8 +1151,19 @@ class TicketService:
         result = await self.db.execute(query)
         tickets = result.scalars().all()
         
-        # Convert to response format
-        ticket_responses = self._convert_to_responses(tickets)
+        # Convert to simplified response
+        ticket_responses = []
+        for ticket in tickets:
+            ticket_dict = {
+                "id": ticket.id,
+                "title": ticket.title,
+                "status": ticket.status,
+                "priority": ticket.priority,
+                "assignee_name": ticket.assignee.full_name if ticket.assignee else None,
+                "created_at": ticket.created_at,
+                "updated_at": ticket.updated_at
+            }
+            ticket_responses.append(ticket_dict)
         
         return ticket_responses, total
     
@@ -1167,7 +1221,7 @@ class TicketService:
         self,
         ticket_id: UUID,
         deleted_by_user_id: UUID
-    ) -> None:
+    ) -> dict:
         """Delete ticket (Admin only - soft delete by setting is_active = False)"""
         # Get ticket
         result = await self.db.execute(
@@ -1197,114 +1251,11 @@ class TicketService:
         await self.db.commit()
         
         logger.info(f"Ticket {ticket.id} deleted by admin {deleted_by_user_id}")
-    
-    # ==================== Admin - Get All Tickets (Simplified) ====================
-    
-    async def get_all_tickets_admin_summary(
-        self,
-        page: int = 1,
-        limit: int = 10,
-        status: Optional[TicketStatus] = None,
-        priority: Optional[TicketPriority] = None,
-        ticket_type: Optional[TicketType] = None,
-        is_closed: Optional[bool] = None,
-        assignee_id: Optional[UUID] = None,
-        sort_by: str = "created_at",
-        search: Optional[str] = None
-    ) -> Tuple[List[dict], int]:
-        """Get all tickets (Admin only) with simplified response"""
-        # Base query
-        query = select(Ticket).options(
-            selectinload(Ticket.assignee)
-        ).where(Ticket.is_active == True)
         
-        # Apply filters
-        if status:
-            query = query.where(Ticket.status == status)
-        if priority:
-            query = query.where(Ticket.priority == priority)
-        if ticket_type:
-            query = query.where(Ticket.ticket_type == ticket_type)
-        if is_closed is not None:
-            query = query.where(Ticket.is_closed == is_closed)
-        if assignee_id is not None:
-            query = query.where(Ticket.assignee_id == assignee_id)
-        
-        if search:
-            search_term = f"%{search}%"
-            query = query.where(
-                or_(
-                    Ticket.title.ilike(search_term),
-                    Ticket.description.ilike(search_term),
-                    Ticket.customer_name.ilike(search_term),
-                    Ticket.customer_email.ilike(search_term),
-                    Ticket.external_customer_id.ilike(search_term)
-                )
-            )
-        
-        # Count query
-        count_query = select(func.count()).select_from(Ticket).where(Ticket.is_active == True)
-        
-        if status:
-            count_query = count_query.where(Ticket.status == status)
-        if priority:
-            count_query = count_query.where(Ticket.priority == priority)
-        if ticket_type:
-            count_query = count_query.where(Ticket.ticket_type == ticket_type)
-        if is_closed is not None:
-            count_query = count_query.where(Ticket.is_closed == is_closed)
-        if assignee_id is not None:
-            count_query = count_query.where(Ticket.assignee_id == assignee_id)
-        if search:
-            search_term = f"%{search}%"
-            count_query = count_query.where(
-                or_(
-                    Ticket.title.ilike(search_term),
-                    Ticket.description.ilike(search_term),
-                    Ticket.customer_name.ilike(search_term),
-                    Ticket.customer_email.ilike(search_term),
-                    Ticket.external_customer_id.ilike(search_term)
-                )
-            )
-        
-        total_result = await self.db.execute(count_query)
-        total = total_result.scalar()
-        
-        # Apply sorting
-        sort_options = {
-            "created_at": Ticket.created_at.desc(),
-            "updated_at": Ticket.updated_at.desc(),
-            "priority": Ticket.priority.desc(),
-            "status": Ticket.status.asc(),
-            "title": Ticket.title.asc(),
-            "customer_name": Ticket.customer_name.asc()
+        return {
+            "message": "Ticket deleted successfully",
+            "ticket_id": ticket.id
         }
-        sort_column = sort_options.get(sort_by, Ticket.created_at.desc())
-        
-        # Apply pagination and sorting
-        offset = (page - 1) * limit
-        query = query.order_by(sort_column).offset(offset).limit(limit)
-        
-        # Execute query
-        result = await self.db.execute(query)
-        tickets = result.scalars().all()
-        
-        # Convert to simplified response
-        simplified_tickets = []
-        for ticket in tickets:
-            simplified_tickets.append({
-                "id": ticket.id,
-                "ticket_type": ticket.ticket_type,
-                "title": ticket.title,
-                "status": ticket.status,
-                "priority": ticket.priority,
-                "customer_name": ticket.customer_name,
-                "assignee_id": ticket.assignee_id,
-                "assignee_name": ticket.assignee.full_name if ticket.assignee else None,
-                "created_at": ticket.created_at
-            })
-        
-        return simplified_tickets, total
     
     # ==================== Admin - Get Statistics ====================
     
@@ -1515,34 +1466,6 @@ class TicketService:
             raise BadRequestException(
                 f"Cannot change status from {current_status.value} to {new_status.value}"
             )
-    
-    def _convert_to_responses(self, tickets: List[Ticket]) -> List[TicketResponse]:
-        """Convert Ticket models to TicketResponse schemas"""
-        responses = []
-        for ticket in tickets:
-            ticket_dict = {
-                "id": ticket.id,
-                "ticket_type": ticket.ticket_type,
-                "title": ticket.title,
-                "description": ticket.description,
-                "customer_email": ticket.customer_email,
-                "customer_name": ticket.customer_name,
-                "external_customer_id": ticket.external_customer_id,
-                "status": ticket.status,
-                "priority": ticket.priority,
-                "ai_auto_created": ticket.ai_auto_created,
-                "ai_confidence": float(ticket.ai_confidence) if ticket.ai_confidence else None,
-                "sla_due_date": ticket.sla_due_date,
-                "assignee_id": ticket.assignee_id,
-                "assignee_name": ticket.assignee.full_name if ticket.assignee else None,
-                "assigned_at": ticket.assigned_at,
-                "is_closed": ticket.is_closed,
-                "created_at": ticket.created_at,
-                "updated_at": ticket.updated_at
-            }
-            responses.append(TicketResponse(**ticket_dict))
-        
-        return responses
     
     async def _create_audit_log(
         self,
