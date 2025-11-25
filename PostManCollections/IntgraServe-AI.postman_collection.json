@@ -2,7 +2,7 @@
 	"info": {
 		"_postman_id": "a1b2c3d4-e5f6-4a5b-8c9d-0e1f2a3b4c5d",
 		"name": "IntgraServe-AI - Complete API",
-		"description": "Complete API Collection for IntgraServe-AI Customer Support System with all endpoints",
+		"description": "Complete API Collection for IntgraServe-AI Customer Support System with all endpoints including Tickets",
 		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
 		"_exporter_id": "12345"
 	},
@@ -405,6 +405,18 @@
 								{
 									"key": "limit",
 									"value": "10"
+								},
+								{
+									"key": "sort_by",
+									"value": "created_at",
+									"disabled": true,
+									"description": "Sort by: created_at or action_type"
+								},
+								{
+									"key": "search",
+									"value": "CREATE",
+									"disabled": true,
+									"description": "Search in action_type and target_table"
 								}
 							]
 						},
@@ -468,6 +480,1208 @@
 				}
 			],
 			"description": "Get current user's roles"
+		},
+		{
+			"name": "Tickets - External (No Auth)",
+			"item": [
+				{
+					"name": "Create External Ticket",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Ticket created successfully\", function () {",
+									"    pm.response.to.have.status(201);",
+									"});",
+									"",
+									"if (pm.response.code === 201) {",
+									"    var jsonData = pm.response.json();",
+									"    ",
+									"    pm.test(\"Response has ticket_id\", function () {",
+									"        pm.expect(jsonData).to.have.property('ticket_id');",
+									"        pm.expect(jsonData).to.have.property('message');",
+									"    });",
+									"    ",
+									"    pm.environment.set(\"ticket_id\", jsonData.ticket_id);",
+									"    console.log(\"✅ Ticket created:\", jsonData.ticket_id);",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"external_customer_id\": \"CUST-12345\",\n  \"customer_email\": \"customer@example.com\",\n  \"customer_name\": \"Ahmed Mohamed\",\n  \"title\": \"Cannot login to my account\",\n  \"description\": \"I keep getting 'Invalid credentials' error when trying to login. I have tried resetting my password but the issue persists.\",\n  \"priority\": \"high\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/v1/tickets/external/create",
+							"host": ["{{base_url}}"],
+							"path": ["api", "v1", "tickets", "external", "create"]
+						},
+						"description": "Create a support ticket from external system. No authentication required.\n\nSLA Times:\n- urgent: 1 hour\n- high: 4 hours\n- medium: 12 hours\n- low: 24 hours"
+					}
+				},
+				{
+					"name": "Add External Message (with files)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Message added successfully\", function () {",
+									"    pm.response.to.have.status(201);",
+									"});",
+									"",
+									"if (pm.response.code === 201) {",
+									"    var jsonData = pm.response.json();",
+									"    ",
+									"    pm.test(\"Response has message_id\", function () {",
+									"        pm.expect(jsonData).to.have.property('message_id');",
+									"    });",
+									"    ",
+									"    console.log(\"✅ Message added:\", jsonData.message_id);",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "formdata",
+							"formdata": [
+								{
+									"key": "customer_email",
+									"value": "customer@example.com",
+									"description": "Must match ticket owner email",
+									"type": "text"
+								},
+								{
+									"key": "customer_name",
+									"value": "Ahmed Mohamed",
+									"description": "Customer name",
+									"type": "text"
+								},
+								{
+									"key": "message_text",
+									"value": "I tried clearing the cache but still having the same issue. Please see attached screenshot.",
+									"description": "Message text (optional if files attached)",
+									"type": "text"
+								},
+								{
+									"key": "files",
+									"description": "Attachments (max 5 files, 10 MB each)",
+									"type": "file",
+									"src": [],
+									"disabled": true
+								}
+							]
+						},
+						"url": {
+							"raw": "{{base_url}}/api/v1/tickets/external/{{ticket_id}}/messages",
+							"host": ["{{base_url}}"],
+							"path": ["api", "v1", "tickets", "external", "{{ticket_id}}", "messages"]
+						},
+						"description": "Add message from external customer with optional file attachments.\n\nOptions:\n- Message only\n- Files only (auto-generates \"[File(s) attached]\")\n- Message + Files\n\nFile Rules:\n- Max 5 files\n- Max 10 MB per file\n- Allowed: jpg, jpeg, png, gif, pdf, doc, docx, txt, csv, xlsx"
+					}
+				},
+				{
+					"name": "Get My Tickets (External)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code is 200\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"if (pm.response.code === 200) {",
+									"    var jsonData = pm.response.json();",
+									"    ",
+									"    pm.test(\"Response has pagination\", function () {",
+									"        pm.expect(jsonData).to.have.property('page');",
+									"        pm.expect(jsonData).to.have.property('total');",
+									"        pm.expect(jsonData).to.have.property('tickets');",
+									"    });",
+									"    ",
+									"    if (jsonData.tickets.length > 0) {",
+									"        pm.environment.set(\"ticket_id\", jsonData.tickets[0].id);",
+									"        console.log(\"✅ First ticket ID saved:\", jsonData.tickets[0].id);",
+									"    }",
+									"    ",
+									"    console.log(\"Total tickets:\", jsonData.total);",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/v1/tickets/external/my-tickets?customer_email=customer@example.com&page=1&limit=10",
+							"host": ["{{base_url}}"],
+							"path": ["api", "v1", "tickets", "external", "my-tickets"],
+							"query": [
+								{
+									"key": "customer_email",
+									"value": "customer@example.com",
+									"description": "Customer email address (required)"
+								},
+								{
+									"key": "page",
+									"value": "1"
+								},
+								{
+									"key": "limit",
+									"value": "10"
+								}
+							]
+						},
+						"description": "Get all tickets for external customer by email. Returns simplified information."
+					}
+				},
+				{
+					"name": "Get Ticket Messages (External)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code is 200\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"if (pm.response.code === 200) {",
+									"    var jsonData = pm.response.json();",
+									"    ",
+									"    pm.test(\"Response has pagination\", function () {",
+									"        pm.expect(jsonData).to.have.property('page');",
+									"        pm.expect(jsonData).to.have.property('total');",
+									"        pm.expect(jsonData).to.have.property('messages');",
+									"    });",
+									"    ",
+									"    console.log(\"✅ Total messages:\", jsonData.total);",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/v1/tickets/external/{{ticket_id}}/messages?customer_email=customer@example.com&page=1&limit=20",
+							"host": ["{{base_url}}"],
+							"path": ["api", "v1", "tickets", "external", "{{ticket_id}}", "messages"],
+							"query": [
+								{
+									"key": "customer_email",
+									"value": "customer@example.com",
+									"description": "Must match ticket owner"
+								},
+								{
+									"key": "page",
+									"value": "1"
+								},
+								{
+									"key": "limit",
+									"value": "20"
+								}
+							]
+						},
+						"description": "Get messages for external customer. Internal notes are automatically excluded."
+					}
+				}
+			],
+			"description": "External/Public ticket endpoints - No authentication required"
+		},
+		{
+			"name": "Tickets - Authenticated",
+			"item": [
+				{
+					"name": "Get My Tickets",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code is 200\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"if (pm.response.code === 200) {",
+									"    var jsonData = pm.response.json();",
+									"    ",
+									"    pm.test(\"Response has pagination\", function () {",
+									"        pm.expect(jsonData).to.have.property('page');",
+									"        pm.expect(jsonData).to.have.property('total');",
+									"        pm.expect(jsonData).to.have.property('tickets');",
+									"    });",
+									"    ",
+									"    if (jsonData.tickets.length > 0) {",
+									"        pm.environment.set(\"ticket_id\", jsonData.tickets[0].id);",
+									"        console.log(\"✅ First ticket ID saved:\", jsonData.tickets[0].id);",
+									"    }",
+									"    ",
+									"    console.log(\"My tickets:\", jsonData.total);",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{access_token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/v1/tickets/my-tickets?page=1&limit=10",
+							"host": ["{{base_url}}"],
+							"path": ["api", "v1", "tickets", "my-tickets"],
+							"query": [
+								{
+									"key": "page",
+									"value": "1"
+								},
+								{
+									"key": "limit",
+									"value": "10"
+								},
+								{
+									"key": "status",
+									"value": "open",
+									"disabled": true,
+									"description": "Filter: open, in_progress, pending, escalated, resolved, closed, canceled"
+								},
+								{
+									"key": "priority",
+									"value": "high",
+									"disabled": true,
+									"description": "Filter: urgent, high, medium, low"
+								},
+								{
+									"key": "sort_by",
+									"value": "created_at",
+									"disabled": true,
+									"description": "Sort: created_at, updated_at, priority, status, title"
+								},
+								{
+									"key": "search",
+									"value": "login",
+									"disabled": true,
+									"description": "Search in title, customer name/email"
+								}
+							]
+						},
+						"description": "Get tickets assigned to current user. Automatically filters by role:\n- Tech User → sees only tech tickets\n- Support User → sees only support tickets\n- Admin → sees all"
+					}
+				},
+				{
+					"name": "Get Unassigned Tickets",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code is 200\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"if (pm.response.code === 200) {",
+									"    var jsonData = pm.response.json();",
+									"    ",
+									"    pm.test(\"Response has pagination\", function () {",
+									"        pm.expect(jsonData).to.have.property('page');",
+									"        pm.expect(jsonData).to.have.property('total');",
+									"        pm.expect(jsonData).to.have.property('tickets');",
+									"    });",
+									"    ",
+									"    if (jsonData.tickets.length > 0) {",
+									"        pm.environment.set(\"unassigned_ticket_id\", jsonData.tickets[0].id);",
+									"        console.log(\"✅ Unassigned ticket ID saved:\", jsonData.tickets[0].id);",
+									"    }",
+									"    ",
+									"    console.log(\"Unassigned tickets:\", jsonData.total);",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{access_token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/v1/tickets/unassigned?page=1&limit=10",
+							"host": ["{{base_url}}"],
+							"path": ["api", "v1", "tickets", "unassigned"],
+							"query": [
+								{
+									"key": "page",
+									"value": "1"
+								},
+								{
+									"key": "limit",
+									"value": "10"
+								},
+								{
+									"key": "priority",
+									"value": "urgent",
+									"disabled": true,
+									"description": "Filter: urgent, high, medium, low"
+								},
+								{
+									"key": "sort_by",
+									"value": "priority",
+									"disabled": true,
+									"description": "Sort: priority, created_at, title"
+								},
+								{
+									"key": "search",
+									"value": "login",
+									"disabled": true,
+									"description": "Search in title, customer name"
+								}
+							]
+						},
+						"description": "Get unassigned tickets available for pickup. Filters by role automatically."
+					}
+				},
+				{
+					"name": "Get Ticket Details",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code is 200\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"if (pm.response.code === 200) {",
+									"    var jsonData = pm.response.json();",
+									"    ",
+									"    pm.test(\"Ticket has required fields\", function () {",
+									"        pm.expect(jsonData).to.have.property('id');",
+									"        pm.expect(jsonData).to.have.property('title');",
+									"        pm.expect(jsonData).to.have.property('status');",
+									"        pm.expect(jsonData).to.have.property('priority');",
+									"    });",
+									"    ",
+									"    console.log(\"✅ Ticket:\", jsonData.title);",
+									"    console.log(\"Status:\", jsonData.status);",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{access_token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/v1/tickets/{{ticket_id}}",
+							"host": ["{{base_url}}"],
+							"path": ["api", "v1", "tickets", "{{ticket_id}}"]
+						},
+						"description": "Get detailed information about a specific ticket"
+					}
+				},
+				{
+					"name": "Assign Ticket to Me",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Ticket assigned successfully\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"if (pm.response.code === 200) {",
+									"    var jsonData = pm.response.json();",
+									"    ",
+									"    pm.test(\"Response has ticket_id\", function () {",
+									"        pm.expect(jsonData).to.have.property('ticket_id');",
+									"        pm.expect(jsonData).to.have.property('assignee_name');",
+									"    });",
+									"    ",
+									"    console.log(\"✅ Assigned to:\", jsonData.assignee_name);",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{access_token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "PATCH",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/v1/tickets/{{unassigned_ticket_id}}/assign-to-me",
+							"host": ["{{base_url}}"],
+							"path": ["api", "v1", "tickets", "{{unassigned_ticket_id}}", "assign-to-me"]
+						},
+						"description": "Self-assign an unassigned ticket. Ticket must be OPEN and match your role type. Status automatically changes to IN_PROGRESS."
+					}
+				},
+				{
+					"name": "Update Ticket Status",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status updated successfully\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"if (pm.response.code === 200) {",
+									"    var jsonData = pm.response.json();",
+									"    ",
+									"    pm.test(\"Response has status info\", function () {",
+									"        pm.expect(jsonData).to.have.property('old_status');",
+									"        pm.expect(jsonData).to.have.property('new_status');",
+									"    });",
+									"    ",
+									"    console.log(\"✅ Status changed:\", jsonData.old_status, \"→\", jsonData.new_status);",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{access_token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "PATCH",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"status\": \"pending\",\n  \"notes\": \"Waiting for customer response\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/v1/tickets/{{ticket_id}}/status",
+							"host": ["{{base_url}}"],
+							"path": ["api", "v1", "tickets", "{{ticket_id}}", "status"]
+						},
+						"description": "Update ticket status.\n\nValid transitions:\n- open → in_progress, canceled\n- in_progress → pending, resolved, escalated, canceled\n- pending → in_progress, resolved, canceled\n- escalated → in_progress, resolved, canceled\n- resolved → closed, open\n- closed → open"
+					}
+				},
+				{
+					"name": "Reassign Ticket (Tech ↔ Support)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Ticket reassigned successfully\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"if (pm.response.code === 200) {",
+									"    var jsonData = pm.response.json();",
+									"    ",
+									"    pm.test(\"Response has new type\", function () {",
+									"        pm.expect(jsonData).to.have.property('new_ticket_type');",
+									"    });",
+									"    ",
+									"    console.log(\"✅ Transferred to:\", jsonData.new_ticket_type, \"team\");",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{access_token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "PATCH",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"reason\": \"Needs database expertise - escalating to Tech team\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/v1/tickets/{{ticket_id}}/reassign",
+							"host": ["{{base_url}}"],
+							"path": ["api", "v1", "tickets", "{{ticket_id}}", "reassign"]
+						},
+						"description": "Toggle ticket between Tech and Support teams.\n\n- SUPPORT → TECH (unassigned)\n- TECH → SUPPORT (unassigned)\n\nCannot reassign closed, canceled, or resolved tickets."
+					}
+				},
+				{
+					"name": "Resolve Ticket",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Ticket resolved successfully\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"if (pm.response.code === 200) {",
+									"    var jsonData = pm.response.json();",
+									"    ",
+									"    pm.test(\"Response has resolved_at\", function () {",
+									"        pm.expect(jsonData).to.have.property('resolved_at');",
+									"    });",
+									"    ",
+									"    console.log(\"✅ Resolved at:\", jsonData.resolved_at);",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{access_token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "PATCH",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"resolution_notes\": \"Issue was caused by outdated browser cache. Customer cleared cache and login is now working correctly. Verified with customer that the issue is resolved.\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/v1/tickets/{{ticket_id}}/resolve",
+							"host": ["{{base_url}}"],
+							"path": ["api", "v1", "tickets", "{{ticket_id}}", "resolve"]
+						},
+						"description": "Mark ticket as resolved with resolution notes (min 10 chars, max 2000 chars)."
+					}
+				},
+				{
+					"name": "Cancel Ticket",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Ticket canceled successfully\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"if (pm.response.code === 200) {",
+									"    var jsonData = pm.response.json();",
+									"    console.log(\"✅ Ticket canceled\");",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{access_token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "PATCH",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"cancellation_reason\": \"Duplicate of ticket #12345\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/v1/tickets/{{ticket_id}}/cancel",
+							"host": ["{{base_url}}"],
+							"path": ["api", "v1", "tickets", "{{ticket_id}}", "cancel"]
+						},
+						"description": "Cancel a ticket (e.g., duplicate, spam, invalid request).\n\nCancellation reason: min 5 chars, max 500 chars"
+					}
+				},
+				{
+					"name": "Close Ticket",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Ticket closed successfully\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"if (pm.response.code === 200) {",
+									"    var jsonData = pm.response.json();",
+									"    ",
+									"    pm.test(\"Response has closed_at\", function () {",
+									"        pm.expect(jsonData).to.have.property('closed_at');",
+									"    });",
+									"    ",
+									"    console.log(\"✅ Closed at:\", jsonData.closed_at);",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{access_token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "PATCH",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/v1/tickets/{{ticket_id}}/close",
+							"host": ["{{base_url}}"],
+							"path": ["api", "v1", "tickets", "{{ticket_id}}", "close"]
+						},
+						"description": "Close a ticket (final state). Can only close RESOLVED tickets."
+					}
+				},
+				{
+					"name": "Get Ticket Messages",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code is 200\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"if (pm.response.code === 200) {",
+									"    var jsonData = pm.response.json();",
+									"    ",
+									"    pm.test(\"Response has pagination\", function () {",
+									"        pm.expect(jsonData).to.have.property('page');",
+									"        pm.expect(jsonData).to.have.property('total');",
+									"        pm.expect(jsonData).to.have.property('messages');",
+									"    });",
+									"    ",
+									"    console.log(\"✅ Total messages:\", jsonData.total);",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{access_token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/v1/tickets/{{ticket_id}}/messages?page=1&limit=20",
+							"host": ["{{base_url}}"],
+							"path": ["api", "v1", "tickets", "{{ticket_id}}", "messages"],
+							"query": [
+								{
+									"key": "page",
+									"value": "1"
+								},
+								{
+									"key": "limit",
+									"value": "20"
+								}
+							]
+						},
+						"description": "Get all messages for a ticket including internal notes (visible to authenticated users only)."
+					}
+				},
+				{
+					"name": "Add Message (with files)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Message added successfully\", function () {",
+									"    pm.response.to.have.status(201);",
+									"});",
+									"",
+									"if (pm.response.code === 201) {",
+									"    var jsonData = pm.response.json();",
+									"    ",
+									"    pm.test(\"Response has message_id\", function () {",
+									"        pm.expect(jsonData).to.have.property('message_id');",
+									"    });",
+									"    ",
+									"    console.log(\"✅ Message added:\", jsonData.message_id);",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{access_token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "formdata",
+							"formdata": [
+								{
+									"key": "message_text",
+									"value": "I have checked the logs and found the issue. Working on a fix.",
+									"description": "Message text (optional if files attached)",
+									"type": "text"
+								},
+								{
+									"key": "is_internal_note",
+									"value": "false",
+									"description": "If true, not visible to customer",
+									"type": "text"
+								},
+								{
+									"key": "files",
+									"description": "Attachments (max 5 files, 10 MB each)",
+									"type": "file",
+									"src": [],
+									"disabled": true
+								}
+							]
+						},
+						"url": {
+							"raw": "{{base_url}}/api/v1/tickets/{{ticket_id}}/messages",
+							"host": ["{{base_url}}"],
+							"path": ["api", "v1", "tickets", "{{ticket_id}}", "messages"]
+						},
+						"description": "Add message or internal note to ticket with optional file attachments.\n\nOptions:\n- Message only\n- Files only (auto-generates \"[File(s) attached]\")\n- Message + Files\n\nFile Rules:\n- Max 5 files\n- Max 10 MB per file\n- Allowed: jpg, jpeg, png, gif, pdf, doc, docx, txt, csv, xlsx"
+					}
+				},
+				{
+					"name": "Add Internal Note",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Internal note added successfully\", function () {",
+									"    pm.response.to.have.status(201);",
+									"});",
+									"",
+									"if (pm.response.code === 201) {",
+									"    var jsonData = pm.response.json();",
+									"    console.log(\"✅ Internal note added:\", jsonData.message_id);",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{access_token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "formdata",
+							"formdata": [
+								{
+									"key": "message_text",
+									"value": "Checked database - user account is locked due to failed login attempts. Need to unlock.",
+									"type": "text"
+								},
+								{
+									"key": "is_internal_note",
+									"value": "true",
+									"description": "Internal notes are NOT visible to customers",
+									"type": "text"
+								}
+							]
+						},
+						"url": {
+							"raw": "{{base_url}}/api/v1/tickets/{{ticket_id}}/messages",
+							"host": ["{{base_url}}"],
+							"path": ["api", "v1", "tickets", "{{ticket_id}}", "messages"]
+						},
+						"description": "Add an internal note (not visible to customers)."
+					}
+				}
+			],
+			"description": "Authenticated ticket endpoints - Requires JWT token"
+		},
+		{
+			"name": "Tickets - Admin Only",
+			"item": [
+				{
+					"name": "Get All Tickets",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code is 200\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"if (pm.response.code === 200) {",
+									"    var jsonData = pm.response.json();",
+									"    ",
+									"    pm.test(\"Response has pagination\", function () {",
+									"        pm.expect(jsonData).to.have.property('page');",
+									"        pm.expect(jsonData).to.have.property('total');",
+									"        pm.expect(jsonData).to.have.property('tickets');",
+									"    });",
+									"    ",
+									"    if (jsonData.tickets.length > 0) {",
+									"        pm.environment.set(\"ticket_id\", jsonData.tickets[0].id);",
+									"        console.log(\"✅ First ticket ID saved:\", jsonData.tickets[0].id);",
+									"    }",
+									"    ",
+									"    console.log(\"Total tickets:\", jsonData.total);",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{access_token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/v1/tickets/admin/all?page=1&limit=10",
+							"host": ["{{base_url}}"],
+							"path": ["api", "v1", "tickets", "admin", "all"],
+							"query": [
+								{
+									"key": "page",
+									"value": "1"
+								},
+								{
+									"key": "limit",
+									"value": "10"
+								},
+								{
+									"key": "status",
+									"value": "open",
+									"disabled": true,
+									"description": "Filter: open, in_progress, pending, escalated, resolved, closed, canceled"
+								},
+								{
+									"key": "priority",
+									"value": "high",
+									"disabled": true,
+									"description": "Filter: urgent, high, medium, low"
+								},
+								{
+									"key": "ticket_type",
+									"value": "support",
+									"disabled": true,
+									"description": "Filter: tech, support"
+								},
+								{
+									"key": "is_closed",
+									"value": "false",
+									"disabled": true,
+									"description": "Filter: true, false"
+								},
+								{
+									"key": "assignee_id",
+									"value": "{{user_id}}",
+									"disabled": true,
+									"description": "Filter by assignee UUID"
+								},
+								{
+									"key": "sort_by",
+									"value": "created_at",
+									"disabled": true,
+									"description": "Sort: created_at, updated_at, priority, status, title, customer_name"
+								},
+								{
+									"key": "search",
+									"value": "login",
+									"disabled": true,
+									"description": "Search in title, customer name/email, external_id"
+								}
+							]
+						},
+						"description": "Get all tickets with comprehensive filtering options (Admin only)"
+					}
+				},
+				{
+					"name": "Get Ticket Details (Full)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code is 200\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"if (pm.response.code === 200) {",
+									"    var jsonData = pm.response.json();",
+									"    ",
+									"    pm.test(\"Ticket has ALL fields\", function () {",
+									"        pm.expect(jsonData).to.have.property('id');",
+									"        pm.expect(jsonData).to.have.property('resolution_notes');",
+									"        pm.expect(jsonData).to.have.property('cancellation_reason');",
+									"        pm.expect(jsonData).to.have.property('escalation_reason');",
+									"        pm.expect(jsonData).to.have.property('previous_assignee_id');",
+									"        pm.expect(jsonData).to.have.property('is_active');",
+									"    });",
+									"    ",
+									"    console.log(\"✅ Full ticket details loaded\");",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{access_token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/v1/tickets/admin/{{ticket_id}}",
+							"host": ["{{base_url}}"],
+							"path": ["api", "v1", "tickets", "admin", "{{ticket_id}}"]
+						},
+						"description": "Get complete ticket information with ALL fields including resolution notes, cancellation reasons, escalation details, and previous assignee (Admin only)"
+					}
+				},
+				{
+					"name": "Delete Ticket",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Ticket deleted successfully\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"if (pm.response.code === 200) {",
+									"    var jsonData = pm.response.json();",
+									"    console.log(\"✅ Ticket deleted (soft delete)\");",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{access_token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/v1/tickets/admin/{{ticket_id}}",
+							"host": ["{{base_url}}"],
+							"path": ["api", "v1", "tickets", "admin", "{{ticket_id}}"]
+						},
+						"description": "Delete ticket (soft delete - sets is_active to false). Admin only."
+					}
+				},
+				{
+					"name": "Get Ticket Statistics",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code is 200\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"if (pm.response.code === 200) {",
+									"    var jsonData = pm.response.json();",
+									"    ",
+									"    pm.test(\"Statistics has required fields\", function () {",
+									"        pm.expect(jsonData).to.have.property('total_tickets');",
+									"        pm.expect(jsonData).to.have.property('open_tickets');",
+									"        pm.expect(jsonData).to.have.property('urgent_tickets');",
+									"        pm.expect(jsonData).to.have.property('overdue_tickets');",
+									"    });",
+									"    ",
+									"    console.log(\"✅ Total tickets:\", jsonData.total_tickets);",
+									"    console.log(\"Open:\", jsonData.open_tickets);",
+									"    console.log(\"Overdue:\", jsonData.overdue_tickets);",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{access_token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/v1/tickets/admin/statistics",
+							"host": ["{{base_url}}"],
+							"path": ["api", "v1", "tickets", "admin", "statistics"]
+						},
+						"description": "Get comprehensive ticket statistics (Admin only)"
+					}
+				}
+			],
+			"description": "Admin-only ticket endpoints"
 		},
 		{
 			"name": "Users (Admin Only)",
@@ -579,22 +1793,10 @@
 									"value": "10"
 								},
 								{
-									"key": "role",
-									"value": "Admin",
+									"key": "sort_by",
+									"value": "created_at",
 									"disabled": true,
-									"description": "Filter by role name"
-								},
-								{
-									"key": "is_active",
-									"value": "true",
-									"disabled": true,
-									"description": "Filter by active status"
-								},
-								{
-									"key": "email_confirmed",
-									"value": "true",
-									"disabled": true,
-									"description": "Filter by email confirmation"
+									"description": "Sort: created_at, email, full_name, last_login"
 								},
 								{
 									"key": "search",
@@ -1072,6 +2274,18 @@
 								{
 									"key": "limit",
 									"value": "10"
+								},
+								{
+									"key": "sort_by",
+									"value": "created_at",
+									"disabled": true,
+									"description": "Sort: created_at or action_type"
+								},
+								{
+									"key": "search",
+									"value": "UPDATE",
+									"disabled": true,
+									"description": "Search in action_type and target_table"
 								}
 							]
 						},
