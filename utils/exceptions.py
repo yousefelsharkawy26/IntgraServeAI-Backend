@@ -11,11 +11,9 @@ class BaseAPIException(HTTPException):
         message: str,
         errors: Optional[Dict[str, Any]] = None
     ):
-        # إذا كان فيه validation errors، نرجع errors فقط
         if errors:
             detail = {"errors": errors}
         else:
-            # باقي الأخطاء نرجع message فقط
             detail = {"message": message}
         super().__init__(status_code=status_code, detail=detail)
 
@@ -60,7 +58,7 @@ class NotFoundException(BaseAPIException):
 class BadRequestException(BaseAPIException):
     """Exception for bad requests"""
     def __init__(self, message: str = "Bad request"):
-        super().__init__(  # ✅ Fixed: was __Init__ (capital I)
+        super().__init__(
             status_code=status.HTTP_400_BAD_REQUEST,
             message=message
         )
@@ -89,5 +87,184 @@ class ServerException(BaseAPIException):
     def __init__(self, message: str = "Internal server error"):
         super().__init__(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            message=message
+        )
+
+
+# ============================================================================
+# Action Parsing Exceptions
+# ============================================================================
+
+class ParsingException(HTTPException):
+    """Base exception for all action parsing errors"""
+    def __init__(self, error_type: str, message: str):
+        detail = {
+            "error": error_type,
+            "message": message
+        }
+        super().__init__(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=detail
+        )
+
+
+class MissingFieldException(ParsingException):
+    """Exception when a required field is missing"""
+    def __init__(self, field: str, context: str = None):
+        if context:
+            message = f"Missing required field: '{field}' in {context}"
+        else:
+            message = f"Missing required field: '{field}'"
+        super().__init__(
+            error_type="MissingField",
+            message=message
+        )
+
+
+class InvalidActionStructureException(ParsingException):
+    """Exception for invalid or incomplete action structure"""
+    def __init__(self, message: str = "Invalid or incomplete action structure"):
+        super().__init__(
+            error_type="InvalidActionStructure",
+            message=message
+        )
+
+
+class InvalidActionFieldException(ParsingException):
+    """Exception for unknown/foreign fields in action"""
+    def __init__(self, field: str, context: str = None):
+        if context:
+            message = f"Unknown field '{field}' is not allowed in {context}"
+        else:
+            message = f"Unknown field '{field}' is not allowed"
+        super().__init__(
+            error_type="InvalidActionField",
+            message=message
+        )
+
+
+class UnsupportedActionTypeException(ParsingException):
+    """Exception for unsupported action types"""
+    SUPPORTED_TYPES = ["api_request", "sql_query", "vector_query", "knowledge_query", "rpc_request", "internal"]
+    
+    def __init__(self, action_type: str):
+        message = (
+            f"Action type '{action_type}' is not supported. "
+            f"Supported types: {', '.join(self.SUPPORTED_TYPES)}"
+        )
+        super().__init__(
+            error_type="UnsupportedActionType",
+            message=message
+        )
+
+
+class InvalidParamTypeException(ParsingException):
+    """Exception for invalid parameter types"""
+    def __init__(self, param_type: str, action_type: str, allowed_types: list):
+        message = (
+            f"Parameter type '{param_type}' is not valid for '{action_type}' actions. "
+            f"Allowed types: {', '.join(allowed_types)}"
+        )
+        super().__init__(
+            error_type="InvalidParamType",
+            message=message
+        )
+
+
+class InvalidParamValueTypeException(ParsingException):
+    """Exception for invalid parameter value types"""
+    SUPPORTED_VALUE_TYPES = ["string", "integer"]
+    
+    def __init__(self, value_type: str, param_name: str):
+        message = (
+            f"Parameter '{param_name}' has invalid value type '{value_type}'. "
+            f"Supported types: {', '.join(self.SUPPORTED_VALUE_TYPES)}"
+        )
+        super().__init__(
+            error_type="InvalidParamValueType",
+            message=message
+        )
+
+
+class InvalidResponseModeException(ParsingException):
+    """Exception for invalid response modes"""
+    def __init__(self, mode: str, action_type: str, allowed_modes: list):
+        message = (
+            f"Response mode '{mode}' is not valid for '{action_type}' actions. "
+            f"Allowed modes: {', '.join(allowed_modes)}"
+        )
+        super().__init__(
+            error_type="InvalidResponseMode",
+            message=message
+        )
+
+
+class InvalidConnectorTypeException(ParsingException):
+    """Exception for invalid database connector types"""
+    SUPPORTED_CONNECTORS = ["sqlite", "postgres"]
+    
+    def __init__(self, connector: str):
+        message = (
+            f"Connector type '{connector}' is not supported. "
+            f"Supported connectors: {', '.join(self.SUPPORTED_CONNECTORS)}"
+        )
+        super().__init__(
+            error_type="InvalidConnectorType",
+            message=message
+        )
+
+
+class BodyParamOnGetRequestException(ParsingException):
+    """Exception when body parameter is used with GET request"""
+    def __init__(self, param_name: str):
+        message = f"Body parameter '{param_name}' is not allowed on GET requests"
+        super().__init__(
+            error_type="BodyParamOnGetRequest",
+            message=message
+        )
+
+
+class PathParamNotInUrlException(ParsingException):
+    """Exception when path parameter is not found in URL"""
+    def __init__(self, param_name: str, url: str):
+        message = (
+            f"Path parameter '{param_name}' not found in URL. "
+            f"URL should contain '{{{param_name}}}'. Current URL: {url}"
+        )
+        super().__init__(
+            error_type="PathParamNotInUrl",
+            message=message
+        )
+
+
+class VectorParamNotTopicException(ParsingException):
+    """Exception when 'vector' param_type is used on non-topic parameter"""
+    def __init__(self, param_name: str):
+        message = (
+            f"Parameter type 'vector' can only be used with 'topic' parameter, "
+            f"not with '{param_name}'"
+        )
+        super().__init__(
+            error_type="InvalidParamType",
+            message=message
+        )
+
+
+class ValuesNotAllowedInQueryException(ParsingException):
+    """Exception when 'values' field is used in query-type actions"""
+    def __init__(self, action_type: str):
+        message = f"'values' field in response_config is not allowed for '{action_type}' actions"
+        super().__init__(
+            error_type="InvalidActionField",
+            message=message
+        )
+
+
+class RpcFieldInNonRpcActionException(ParsingException):
+    """Exception when RPC-specific fields are used in non-RPC actions"""
+    def __init__(self, field: str, action_type: str):
+        message = f"Field '{field}' is only allowed in 'rpc_request' actions, not in '{action_type}'"
+        super().__init__(
+            error_type="InvalidActionStructure",
             message=message
         )
