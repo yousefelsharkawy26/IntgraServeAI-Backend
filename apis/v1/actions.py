@@ -89,7 +89,7 @@ async def validate_action(
     status_code=status.HTTP_200_OK,
     summary="List All Backups",
     description="Get a list of all backup files.",
-    tags=["Backups"]
+    tags=["Actions"]
 )
 async def list_backups(
     current_user: User = Depends(require_admin),
@@ -109,7 +109,7 @@ async def list_backups(
     status_code=status.HTTP_200_OK,
     summary="Delete All Backups",
     description="Delete all backup files.",
-    tags=["Backups"]
+    tags=["Actions"]
 )
 async def delete_all_backups(
     current_user: User = Depends(require_admin),
@@ -128,7 +128,7 @@ async def delete_all_backups(
     responses={404: {"description": "Backup not found"}},
     summary="Get Backup Content",
     description="Get the content of a specific backup file.",
-    tags=["Backups"]
+    tags=["Actions"]
 )
 async def get_backup_content(
     filename: str,
@@ -147,7 +147,7 @@ async def get_backup_content(
     responses={404: {"description": "Backup not found"}},
     summary="Compare With Backup",
     description="Compare current actions with a backup.",
-    tags=["Backups"]
+    tags=["Actions"]
 )
 async def compare_with_backup(
     filename: str,
@@ -166,7 +166,7 @@ async def compare_with_backup(
     responses={404: {"description": "Backup not found"}},
     summary="Restore Backup",
     description="Restore actions from a backup. Current state backed up first.",
-    tags=["Backups"]
+    tags=["Actions"]
 )
 async def restore_backup(
     filename: str,
@@ -186,7 +186,7 @@ async def restore_backup(
     responses={404: {"description": "Backup not found"}},
     summary="Delete Backup",
     description="Delete a specific backup file.",
-    tags=["Backups"]
+    tags=["Actions"]
 )
 async def delete_backup(
     filename: str,
