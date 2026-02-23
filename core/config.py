@@ -1,6 +1,7 @@
 # core/config.py
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import Optional, List
+from pathlib import Path
 
 
 class Settings(BaseSettings):
@@ -42,6 +43,21 @@ class Settings(BaseSettings):
     
     # CORS
     CORS_ORIGINS: List[str] = ["http://localhost:3000", "http://localhost:8000"]
+    
+    # Actions Configuration
+    ACTIONS_FILE_PATH: str = "data/actions.json"
+    ACTIONS_BACKUP_ENABLED: bool = True
+    ACTIONS_BACKUP_COUNT: int = 5
+    
+    @property
+    def ACTIONS_FILE_FULL_PATH(self) -> Path:
+        """Get full path to actions file"""
+        return Path(self.ACTIONS_FILE_PATH)
+    
+    @property
+    def ACTIONS_BACKUP_DIR(self) -> Path:
+        """Get backup directory path"""
+        return Path(self.ACTIONS_FILE_PATH).parent / "backups"
     
     model_config = SettingsConfigDict(
         env_file=".env",
