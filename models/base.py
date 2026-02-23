@@ -1,3 +1,4 @@
+# models/base.py
 from sqlalchemy import Column, DateTime, func
 from sqlalchemy.dialects.postgresql import UUID
 from core.database import Base

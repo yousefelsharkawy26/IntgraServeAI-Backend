@@ -1,3 +1,4 @@
+# utils/schemas/auth_schemas.py
 from pydantic import BaseModel, EmailStr, Field, field_validator
 from typing import Optional, Dict
 from utils.security import validate_password_strength

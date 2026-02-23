@@ -1,4 +1,4 @@
-# exceptions.py
+# utils/exceptions.py
 from fastapi import HTTPException, status
 from typing import Optional, Dict, Any
 
