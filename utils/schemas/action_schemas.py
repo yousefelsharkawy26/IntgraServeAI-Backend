@@ -11,9 +11,6 @@ from enum import Enum
 class ActionType(str, Enum):
     """Supported action types"""
     API_REQUEST = "api_request"
-    SQL_QUERY = "sql_query"
-    VECTOR_QUERY = "vector_query"
-    KNOWLEDGE_QUERY = "knowledge_query"
     RPC_REQUEST = "rpc_request"
     INTERNAL = "internal"
 
@@ -33,19 +30,11 @@ class ParamValueType(str, Enum):
     INTEGER = "integer"
 
 
-class ConnectorType(str, Enum):
-    """Database connector types"""
-    SQLITE = "sqlite"
-    POSTGRES = "postgres"
-
-
 class ResponseMode(str, Enum):
     """Response modes"""
     JSON = "json"
     XML = "xml"
     HTML = "html"
-    SQL = "sql"
-    RAW = "raw"
 
 
 class Protocol(str, Enum):
@@ -65,52 +54,22 @@ ACTION_TYPE_CONFIG = {
         "optional_exec_fields": ["method", "headers", "timeout"],
         "allowed_param_types": ["query", "body", "path"],
         "allowed_response_modes": ["json", "xml", "html"],
-        "forbidden_exec_fields": ["connector", "connection_string", "collection_name", 
-                                   "max_results", "auth", "embedding_config", "host", 
-                                   "service", "proto_file"],
-    },
-    ActionType.VECTOR_QUERY: {
-        "required_exec_fields": ["connector", "connection_string", "collection_name"],
-        "optional_exec_fields": ["max_results", "auth", "embedding_config"],
-        "allowed_param_types": ["vector"],
-        "allowed_response_modes": ["raw", "sql"],
-        "forbidden_exec_fields": ["protocol", "url", "method", "host", "service", "proto_file"],
-        "no_values_in_response": True,
-        "required_topic_param": True,
-    },
-    ActionType.SQL_QUERY: {
-        "required_exec_fields": ["connector", "connection_string"],
-        "optional_exec_fields": ["max_results", "auth"],
-        "allowed_param_types": ["query"],
-        "allowed_response_modes": ["raw", "sql"],
-        "forbidden_exec_fields": ["protocol", "url", "method", "host", "service", 
-                                   "proto_file", "embedding_config"],
-        "no_values_in_response": True,
-    },
-    ActionType.KNOWLEDGE_QUERY: {
-        "required_exec_fields": ["connector", "connection_string"],
-        "optional_exec_fields": ["max_results", "auth", "collection_name"],
-        "allowed_param_types": ["query"],
-        "allowed_response_modes": ["raw"],
-        "forbidden_exec_fields": ["protocol", "url", "method", "host", "service", 
-                                   "proto_file", "embedding_config"],
-        "no_values_in_response": True,
+        "forbidden_exec_fields": ["host", "service", "proto_file"],
     },
     ActionType.RPC_REQUEST: {
         "required_exec_fields": ["protocol", "host", "service", "method", "proto_file"],
         "optional_exec_fields": ["headers", "timeout"],
         "allowed_param_types": ["message_field"],
         "allowed_response_modes": ["json"],
-        "forbidden_exec_fields": ["connector", "connection_string", "collection_name",
-                                   "max_results", "auth", "embedding_config", "url"],
+        "forbidden_exec_fields": ["url"],
     },
     ActionType.INTERNAL: {
         "required_exec_fields": [],
-        "optional_exec_fields": ["timeout"],
+        "optional_exec_fields": [],
         "allowed_param_types": ["internal"],
-        "allowed_response_modes": ["json", "raw"],
-        "forbidden_exec_fields": ["protocol", "url", "method", "connector", "connection_string",
-                                   "host", "service", "proto_file"],
+        "allowed_response_modes": ["json"],
+        "forbidden_exec_fields": ["protocol", "url", "method", "host", "service", "proto_file", "headers", "timeout"],
+        "read_only": True,
     },
 }
 
@@ -123,7 +82,7 @@ class ActionParameter(BaseModel):
     """Schema for action parameter"""
     type: ParamValueType = Field(..., description="Data type of the parameter value")
     required: bool = Field(..., description="Whether the parameter is required")
-    param_type: str = Field(..., description="Type of parameter (query, body, path, vector, message_field, etc.)")
+    param_type: str = Field(..., description="Type of parameter (query, body, path, message_field, internal)")
     description: str = Field(..., description="Description of the parameter")
     default: Optional[Union[str, int]] = Field(None, description="Default value for the parameter")
     enum: Optional[List[Union[str, int]]] = Field(None, description="Allowed values for the parameter")
@@ -158,31 +117,6 @@ class ResponseConfig(BaseModel):
 
 
 # ============================================================================
-# Embedding Config Schema (for vector_query)
-# ============================================================================
-
-class EmbeddingConfig(BaseModel):
-    """Schema for embedding configuration in vector queries"""
-    provider: str = Field(..., description="Embedding provider (e.g., openai, cohere)")
-    model: str = Field(..., description="Embedding model name")
-    api_key: str = Field(..., description="API key for the embedding provider")
-    
-    model_config = ConfigDict(extra="forbid")
-
-
-# ============================================================================
-# Auth Config Schema (for query actions)
-# ============================================================================
-
-class QueryAuthConfig(BaseModel):
-    """Schema for database authentication"""
-    user: str = Field(..., description="Database username")
-    pass_: str = Field(..., alias="pass", description="Database password")
-    
-    model_config = ConfigDict(extra="forbid", populate_by_name=True)
-
-
-# ============================================================================
 # Execution Config Schema
 # ============================================================================
 
@@ -195,14 +129,6 @@ class ExecutionConfig(BaseModel):
     headers: Optional[Dict[str, str]] = Field(None, description="HTTP headers")
     timeout: Optional[int] = Field(None, description="Timeout in milliseconds")
     
-    # Query action fields
-    connector: Optional[ConnectorType] = Field(None, description="Database connector type")
-    connection_string: Optional[str] = Field(None, description="Database connection string")
-    collection_name: Optional[str] = Field(None, description="Collection/table name")
-    max_results: Optional[int] = Field(None, description="Maximum number of results")
-    auth: Optional[QueryAuthConfig] = Field(None, description="Database authentication")
-    embedding_config: Optional[EmbeddingConfig] = Field(None, description="Embedding configuration")
-    
     # RPC Request fields
     host: Optional[str] = Field(None, description="gRPC host address")
     service: Optional[str] = Field(None, description="gRPC service name")
@@ -212,11 +138,11 @@ class ExecutionConfig(BaseModel):
 
 
 # ============================================================================
-# Main Action Schema - Create
+# Main Action Schema - Create (for API/RPC only)
 # ============================================================================
 
 class ActionCreate(BaseModel):
-    """Schema for creating a new action"""
+    """Schema for creating a new action (API/RPC only, not internal)"""
     name: str = Field(
         ...,
         min_length=1,
@@ -225,8 +151,9 @@ class ActionCreate(BaseModel):
         description="Unique action name (lowercase, underscores allowed)"
     )
     description: str = Field(..., min_length=1, max_length=500, description="Description of what the action does")
-    type: ActionType = Field(..., description="Type of action")
+    type: ActionType = Field(..., description="Type of action (api_request or rpc_request)")
     active: bool = Field(True, description="Whether the action is active")
+    requires_confirmation: bool = Field(False, description="Whether action requires user confirmation")
     execution_config: ExecutionConfig = Field(..., description="Execution configuration")
     parameters: Optional[Dict[str, ActionParameter]] = Field(None, description="Action parameters")
     response_config: Optional[ResponseConfig] = Field(None, description="Response configuration")
@@ -242,21 +169,42 @@ class ActionCreate(BaseModel):
             raise ValueError("Action name must start with a letter")
         return v
     
+    @field_validator('type')
+    @classmethod
+    def validate_type_not_internal(cls, v: ActionType) -> ActionType:
+        """Prevent creating internal actions"""
+        if v == ActionType.INTERNAL:
+            raise ValueError("Cannot create internal actions. They are system-defined.")
+        return v
+    
     model_config = ConfigDict(extra="forbid")
 
 
 # ============================================================================
-# Main Action Schema - Update
+# Main Action Schema - Update (for API/RPC only)
 # ============================================================================
 
 class ActionUpdate(BaseModel):
-    """Schema for updating an action (all fields optional)"""
+    """Schema for updating an action (all fields optional, not for internal actions)"""
+    name: Optional[str] = Field(None, min_length=1, max_length=100, pattern=r'^[a-z][a-z0-9_]*$')
     description: Optional[str] = Field(None, min_length=1, max_length=500)
-    type: Optional[ActionType] = Field(None)
     active: Optional[bool] = Field(None)
+    requires_confirmation: Optional[bool] = Field(None)
     execution_config: Optional[ExecutionConfig] = Field(None)
     parameters: Optional[Dict[str, ActionParameter]] = Field(None)
     response_config: Optional[ResponseConfig] = Field(None)
+    
+    @field_validator('name')
+    @classmethod
+    def validate_name(cls, v: Optional[str]) -> Optional[str]:
+        """Validate action name format"""
+        if v is not None:
+            v = v.strip().lower()
+            if not v:
+                raise ValueError("Action name cannot be empty")
+            if not v[0].isalpha():
+                raise ValueError("Action name must start with a letter")
+        return v
     
     model_config = ConfigDict(extra="forbid")
 
@@ -267,21 +215,25 @@ class ActionUpdate(BaseModel):
 
 class ActionSummary(BaseModel):
     """Summary of an action for list views"""
+    id: str
     name: str
     description: str
     type: ActionType
     active: bool
+    requires_confirmation: bool = False
     
     model_config = ConfigDict(from_attributes=True)
 
 
 class ActionResponse(BaseModel):
     """Full action response"""
+    id: str
     name: str
     description: str
     type: ActionType
     active: bool
-    execution_config: Dict[str, Any]
+    requires_confirmation: bool = False
+    execution_config: Optional[Dict[str, Any]] = None
     parameters: Optional[Dict[str, Any]] = None
     response_config: Optional[Dict[str, Any]] = None
     
@@ -297,24 +249,28 @@ class ActionListResponse(BaseModel):
 class ActionCreatedResponse(BaseModel):
     """Response after creating an action"""
     message: str
+    id: str
     name: str
 
 
 class ActionUpdatedResponse(BaseModel):
     """Response after updating an action"""
     message: str
+    id: str
     name: str
 
 
 class ActionDeletedResponse(BaseModel):
     """Response after deleting an action"""
     message: str
+    id: str
     name: str
 
 
 class ActionToggleResponse(BaseModel):
     """Response after toggling action status"""
     message: str
+    id: str
     name: str
     active: bool
 
@@ -338,6 +294,7 @@ class ActionTypeInfo(BaseModel):
     optional_config: List[str]
     allowed_param_types: List[str]
     allowed_response_modes: List[str]
+    read_only: bool = False
 
 
 class ActionTypesResponse(BaseModel):
@@ -406,11 +363,8 @@ class BackupCompareResponse(BaseModel):
 
 ACTION_TYPE_DESCRIPTIONS = {
     ActionType.API_REQUEST: "HTTP/HTTPS API calls",
-    ActionType.SQL_QUERY: "SQL database queries",
-    ActionType.VECTOR_QUERY: "Vector database queries with embeddings",
-    ActionType.KNOWLEDGE_QUERY: "Knowledge base queries",
     ActionType.RPC_REQUEST: "gRPC remote procedure calls",
-    ActionType.INTERNAL: "Internal system actions",
+    ActionType.INTERNAL: "Internal system actions (read-only)",
 }
 
 
@@ -426,6 +380,7 @@ def get_action_types_info() -> List[ActionTypeInfo]:
             optional_config=config["optional_exec_fields"],
             allowed_param_types=config["allowed_param_types"],
             allowed_response_modes=config["allowed_response_modes"],
+            read_only=config.get("read_only", False),
         )
         types_info.append(info)
     
