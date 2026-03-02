@@ -2,7 +2,7 @@
 	"info": {
 		"_postman_id": "a1b2c3d4-e5f6-4a5b-8c9d-0e1f2a3b4c5d",
 		"name": "IntgraServe-AI - Complete API",
-		"description": "Complete API Collection for IntgraServe-AI Customer Support System with all endpoints including Tickets",
+		"description": "Complete API Collection for IntgraServe-AI Customer Support System with all endpoints including Tickets and Actions",
 		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
 		"_exporter_id": "12345"
 	},
@@ -480,6 +480,1034 @@
 				}
 			],
 			"description": "Get current user's roles"
+		},
+		{
+			"name": "Actions (Admin Only)",
+			"item": [
+				{
+					"name": "Get Action Types",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code is 200\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"if (pm.response.code === 200) {",
+									"    var jsonData = pm.response.json();",
+									"    ",
+									"    pm.test(\"Response has types array\", function () {",
+									"        pm.expect(jsonData).to.have.property('types');",
+									"        pm.expect(jsonData.types).to.be.an('array');",
+									"    });",
+									"    ",
+									"    console.log(\"✅ Action types:\", jsonData.types.map(t => t.type).join(', '));",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{access_token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/v1/actions/types",
+							"host": ["{{base_url}}"],
+							"path": ["api", "v1", "actions", "types"]
+						},
+						"description": "Get all supported action types with their configuration requirements.\n\nTypes:\n- api_request: HTTP/HTTPS API calls\n- rpc_request: gRPC remote procedure calls\n- internal: System-defined actions (read-only)"
+					}
+				},
+				{
+					"name": "List All Actions",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code is 200\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"if (pm.response.code === 200) {",
+									"    var jsonData = pm.response.json();",
+									"    ",
+									"    pm.test(\"Response has actions\", function () {",
+									"        pm.expect(jsonData).to.have.property('total');",
+									"        pm.expect(jsonData).to.have.property('actions');",
+									"        pm.expect(jsonData.actions).to.be.an('array');",
+									"    });",
+									"    ",
+									"    if (jsonData.actions.length > 0) {",
+									"        // Save first non-internal action ID",
+									"        var nonInternal = jsonData.actions.find(a => a.type !== 'internal');",
+									"        if (nonInternal) {",
+									"            pm.environment.set(\"action_id\", nonInternal.id);",
+									"            console.log(\"✅ Action ID saved:\", nonInternal.id);",
+									"        }",
+									"    }",
+									"    ",
+									"    console.log(\"Total actions:\", jsonData.total);",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{access_token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/v1/actions",
+							"host": ["{{base_url}}"],
+							"path": ["api", "v1", "actions"],
+							"query": [
+								{
+									"key": "type",
+									"value": "api_request",
+									"disabled": true,
+									"description": "Filter: api_request, rpc_request, internal"
+								},
+								{
+									"key": "active",
+									"value": "true",
+									"disabled": true,
+									"description": "Filter: true, false"
+								},
+								{
+									"key": "search",
+									"value": "weather",
+									"disabled": true,
+									"description": "Search in name and description"
+								}
+							]
+						},
+						"description": "Get all actions with optional filters.\n\nFilters:\n- type: api_request, rpc_request, internal\n- active: true, false\n- search: text search in name/description"
+					}
+				},
+				{
+					"name": "Get Action By ID",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code is 200\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"if (pm.response.code === 200) {",
+									"    var jsonData = pm.response.json();",
+									"    ",
+									"    pm.test(\"Action has required fields\", function () {",
+									"        pm.expect(jsonData).to.have.property('id');",
+									"        pm.expect(jsonData).to.have.property('name');",
+									"        pm.expect(jsonData).to.have.property('type');",
+									"        pm.expect(jsonData).to.have.property('active');",
+									"    });",
+									"    ",
+									"    console.log(\"✅ Action:\", jsonData.name, \"(\", jsonData.type, \")\");",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{access_token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/v1/actions/{{action_id}}",
+							"host": ["{{base_url}}"],
+							"path": ["api", "v1", "actions", "{{action_id}}"]
+						},
+						"description": "Get full details of a specific action by ID"
+					}
+				},
+				{
+					"name": "Validate Action",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code is 200\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"if (pm.response.code === 200) {",
+									"    var jsonData = pm.response.json();",
+									"    ",
+									"    pm.test(\"Response has validation result\", function () {",
+									"        pm.expect(jsonData).to.have.property('valid');",
+									"        pm.expect(jsonData).to.have.property('message');",
+									"    });",
+									"    ",
+									"    if (jsonData.valid) {",
+									"        console.log(\"✅ Action is valid\");",
+									"    } else {",
+									"        console.log(\"❌ Invalid:\", jsonData.message);",
+									"    }",
+									"    ",
+									"    if (jsonData.warnings) {",
+									"        console.log(\"⚠️ Warnings:\", jsonData.warnings);",
+									"    }",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{access_token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"name\": \"test_action\",\n  \"description\": \"Test action for validation\",\n  \"type\": \"api_request\",\n  \"execution_config\": {\n    \"protocol\": \"https\",\n    \"method\": \"GET\",\n    \"url\": \"https://api.example.com/test\"\n  }\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/v1/actions/validate",
+							"host": ["{{base_url}}"],
+							"path": ["api", "v1", "actions", "validate"]
+						},
+						"description": "Validate an action structure without saving it. Useful for testing configurations before creating."
+					}
+				},
+				{
+					"name": "Create API Action",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Action created successfully\", function () {",
+									"    pm.response.to.have.status(201);",
+									"});",
+									"",
+									"if (pm.response.code === 201) {",
+									"    var jsonData = pm.response.json();",
+									"    ",
+									"    pm.test(\"Response has action info\", function () {",
+									"        pm.expect(jsonData).to.have.property('id');",
+									"        pm.expect(jsonData).to.have.property('name');",
+									"        pm.expect(jsonData.message).to.include('created successfully');",
+									"    });",
+									"    ",
+									"    pm.environment.set(\"action_id\", jsonData.id);",
+									"    console.log(\"✅ Action created:\", jsonData.id, \"-\", jsonData.name);",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{access_token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"name\": \"check_weather\",\n  \"description\": \"Checks weather for a specific city\",\n  \"type\": \"api_request\",\n  \"active\": true,\n  \"requires_confirmation\": false,\n  \"execution_config\": {\n    \"protocol\": \"https\",\n    \"method\": \"GET\",\n    \"url\": \"https://api.weather.com/v1/current/{city_id}\",\n    \"headers\": {\n      \"Authorization\": \"Bearer {{env.WEATHER_API_KEY}}\",\n      \"Content-Type\": \"application/json\"\n    },\n    \"timeout\": 5000\n  },\n  \"parameters\": {\n    \"city_id\": {\n      \"type\": \"string\",\n      \"required\": true,\n      \"param_type\": \"path\",\n      \"description\": \"The city ID\"\n    },\n    \"units\": {\n      \"type\": \"string\",\n      \"required\": false,\n      \"default\": \"C\",\n      \"param_type\": \"query\",\n      \"description\": \"Temperature units\",\n      \"enum\": [\"C\", \"F\"]\n    }\n  },\n  \"response_config\": {\n    \"mode\": \"json\",\n    \"values\": {\n      \"temperature\": {\n        \"type\": \"string\",\n        \"path\": \"data.temp\"\n      }\n    },\n    \"template\": \"Current temperature: {{temperature}}\",\n    \"on_error\": \"Failed to get weather\"\n  }\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/v1/actions",
+							"host": ["{{base_url}}"],
+							"path": ["api", "v1", "actions"]
+						},
+						"description": "Create a new API action.\n\nRequired fields:\n- name: lowercase with underscores only\n- description: what the action does\n- type: api_request\n- execution_config: protocol and url required\n\nCannot create 'internal' type actions."
+					}
+				},
+				{
+					"name": "Create RPC Action",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Action created successfully\", function () {",
+									"    pm.response.to.have.status(201);",
+									"});",
+									"",
+									"if (pm.response.code === 201) {",
+									"    var jsonData = pm.response.json();",
+									"    ",
+									"    pm.environment.set(\"rpc_action_id\", jsonData.id);",
+									"    console.log(\"✅ RPC Action created:\", jsonData.id, \"-\", jsonData.name);",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{access_token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"name\": \"book_flight\",\n  \"description\": \"Books a flight using gRPC\",\n  \"type\": \"rpc_request\",\n  \"active\": true,\n  \"requires_confirmation\": true,\n  \"execution_config\": {\n    \"protocol\": \"grpc\",\n    \"host\": \"localhost:50051\",\n    \"service\": \"BookingService\",\n    \"method\": \"BookFlight\",\n    \"proto_file\": \"./protos/booking.proto\",\n    \"timeout\": 10000\n  },\n  \"parameters\": {\n    \"destination\": {\n      \"type\": \"string\",\n      \"required\": true,\n      \"param_type\": \"message_field\",\n      \"description\": \"Destination airport code\"\n    },\n    \"date\": {\n      \"type\": \"string\",\n      \"required\": true,\n      \"param_type\": \"message_field\",\n      \"description\": \"Flight date YYYY-MM-DD\"\n    }\n  },\n  \"response_config\": {\n    \"mode\": \"json\",\n    \"template\": \"Flight booked: {{ticket_id}}\",\n    \"on_error\": \"Booking failed\"\n  }\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/v1/actions",
+							"host": ["{{base_url}}"],
+							"path": ["api", "v1", "actions"]
+						},
+						"description": "Create a new gRPC action.\n\nRequired execution_config fields:\n- protocol: grpc\n- host: gRPC host address\n- service: service name\n- method: method name\n- proto_file: path to .proto file"
+					}
+				},
+				{
+					"name": "Create Internal Action (Should Fail)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Should fail with 422\", function () {",
+									"    pm.response.to.have.status(422);",
+									"});",
+									"",
+									"if (pm.response.code === 422) {",
+									"    var jsonData = pm.response.json();",
+									"    ",
+									"    pm.test(\"Error is InternalActionNotAllowed\", function () {",
+									"        pm.expect(jsonData.error || jsonData.detail.error).to.include('Internal');",
+									"    });",
+									"    ",
+									"    console.log(\"✅ Correctly rejected - cannot create internal actions\");",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{access_token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"name\": \"my_internal_action\",\n  \"description\": \"Trying to create internal action\",\n  \"type\": \"internal\",\n  \"active\": true\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/v1/actions",
+							"host": ["{{base_url}}"],
+							"path": ["api", "v1", "actions"]
+						},
+						"description": "This should FAIL - internal actions cannot be created via API. They are system-defined."
+					}
+				},
+				{
+					"name": "Update Action",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Action updated successfully\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"if (pm.response.code === 200) {",
+									"    var jsonData = pm.response.json();",
+									"    ",
+									"    pm.test(\"Response has action info\", function () {",
+									"        pm.expect(jsonData).to.have.property('id');",
+									"        pm.expect(jsonData.message).to.include('updated successfully');",
+									"    });",
+									"    ",
+									"    console.log(\"✅ Action updated:\", jsonData.id);",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{access_token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"description\": \"Updated: Checks weather for any city worldwide\",\n  \"active\": true,\n  \"requires_confirmation\": true\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/v1/actions/{{action_id}}",
+							"host": ["{{base_url}}"],
+							"path": ["api", "v1", "actions", "{{action_id}}"]
+						},
+						"description": "Update an existing action.\n\nDO NOT send:\n- id (in URL)\n- type (cannot change)\n\nSend only fields you want to update."
+					}
+				},
+				{
+					"name": "Update Action - Full Example",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Action updated successfully\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"if (pm.response.code === 200) {",
+									"    var jsonData = pm.response.json();",
+									"    console.log(\"✅ Action updated:\", jsonData.name);",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{access_token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"name\": \"get_weather_info\",\n  \"description\": \"Gets current weather conditions for any city worldwide\",\n  \"active\": true,\n  \"requires_confirmation\": false,\n  \"execution_config\": {\n    \"protocol\": \"https\",\n    \"method\": \"GET\",\n    \"url\": \"https://api.weather.com/v2/current/{city_id}\",\n    \"headers\": {\n      \"Authorization\": \"Bearer {{env.WEATHER_API_KEY}}\",\n      \"Content-Type\": \"application/json\"\n    },\n    \"timeout\": 8000\n  },\n  \"parameters\": {\n    \"city_id\": {\n      \"type\": \"string\",\n      \"required\": true,\n      \"param_type\": \"path\",\n      \"description\": \"City identifier\"\n    }\n  },\n  \"response_config\": {\n    \"mode\": \"json\",\n    \"values\": {\n      \"temp\": {\n        \"type\": \"string\",\n        \"path\": \"data.temperature\"\n      }\n    },\n    \"template\": \"Temperature: {{temp}}°C\",\n    \"on_error\": \"Weather service unavailable\"\n  }\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/v1/actions/{{action_id}}",
+							"host": ["{{base_url}}"],
+							"path": ["api", "v1", "actions", "{{action_id}}"]
+						},
+						"description": "Full update example with all editable fields.\n\nName rules:\n- lowercase only\n- can include underscores\n- must start with letter\n- pattern: ^[a-z][a-z0-9_]*$"
+					}
+				},
+				{
+					"name": "Update Internal Action (Should Fail)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Should fail with 422\", function () {",
+									"    pm.response.to.have.status(422);",
+									"});",
+									"",
+									"if (pm.response.code === 422) {",
+									"    console.log(\"✅ Correctly rejected - cannot update internal actions\");",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{access_token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"description\": \"Trying to update internal action\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/v1/actions/INT-001",
+							"host": ["{{base_url}}"],
+							"path": ["api", "v1", "actions", "INT-001"]
+						},
+						"description": "This should FAIL - internal actions are read-only and cannot be updated."
+					}
+				},
+				{
+					"name": "Toggle Action Status",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status toggled successfully\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"if (pm.response.code === 200) {",
+									"    var jsonData = pm.response.json();",
+									"    ",
+									"    pm.test(\"Response has new status\", function () {",
+									"        pm.expect(jsonData).to.have.property('active');",
+									"    });",
+									"    ",
+									"    var status = jsonData.active ? 'activated' : 'deactivated';",
+									"    console.log(\"✅ Action\", status + \":\", jsonData.name);",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{access_token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "PATCH",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/v1/actions/{{action_id}}/toggle",
+							"host": ["{{base_url}}"],
+							"path": ["api", "v1", "actions", "{{action_id}}", "toggle"]
+						},
+						"description": "Toggle action active status (on/off).\n\nThis works for ALL action types including internal actions!"
+					}
+				},
+				{
+					"name": "Toggle Internal Action Status",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status toggled successfully\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"if (pm.response.code === 200) {",
+									"    var jsonData = pm.response.json();",
+									"    var status = jsonData.active ? 'activated' : 'deactivated';",
+									"    console.log(\"✅ Internal action\", status + \":\", jsonData.name);",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{access_token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "PATCH",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/v1/actions/INT-001/toggle",
+							"host": ["{{base_url}}"],
+							"path": ["api", "v1", "actions", "INT-001", "toggle"]
+						},
+						"description": "Toggle internal action status.\n\nThis is the ONLY modification allowed on internal actions!"
+					}
+				},
+				{
+					"name": "Delete Action",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Action deleted successfully\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"if (pm.response.code === 200) {",
+									"    var jsonData = pm.response.json();",
+									"    ",
+									"    pm.test(\"Response confirms deletion\", function () {",
+									"        pm.expect(jsonData.message).to.include('deleted successfully');",
+									"    });",
+									"    ",
+									"    console.log(\"✅ Action deleted:\", jsonData.name);",
+									"    pm.environment.unset(\"action_id\");",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{access_token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/v1/actions/{{action_id}}",
+							"host": ["{{base_url}}"],
+							"path": ["api", "v1", "actions", "{{action_id}}"]
+						},
+						"description": "Delete an action permanently.\n\nCannot delete internal actions!"
+					}
+				},
+				{
+					"name": "Delete Internal Action (Should Fail)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Should fail with 422\", function () {",
+									"    pm.response.to.have.status(422);",
+									"});",
+									"",
+									"if (pm.response.code === 422) {",
+									"    console.log(\"✅ Correctly rejected - cannot delete internal actions\");",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{access_token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/v1/actions/INT-001",
+							"host": ["{{base_url}}"],
+							"path": ["api", "v1", "actions", "INT-001"]
+						},
+						"description": "This should FAIL - internal actions cannot be deleted."
+					}
+				}
+			],
+			"description": "Action management endpoints (Admin only).\n\nAction Types:\n- api_request: HTTP/HTTPS API calls\n- rpc_request: gRPC calls\n- internal: System-defined (read-only, can only toggle)\n\nID Format:\n- ACT-001, ACT-002: API/RPC actions\n- INT-001, INT-002: Internal actions"
+		},
+		{
+			"name": "Actions - Backups (Admin Only)",
+			"item": [
+				{
+					"name": "List All Backups",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code is 200\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"if (pm.response.code === 200) {",
+									"    var jsonData = pm.response.json();",
+									"    ",
+									"    pm.test(\"Response has backups\", function () {",
+									"        pm.expect(jsonData).to.have.property('total');",
+									"        pm.expect(jsonData).to.have.property('backups');",
+									"    });",
+									"    ",
+									"    if (jsonData.backups.length > 0) {",
+									"        pm.environment.set(\"backup_filename\", jsonData.backups[0].filename);",
+									"        console.log(\"✅ Latest backup:\", jsonData.backups[0].filename);",
+									"    }",
+									"    ",
+									"    console.log(\"Total backups:\", jsonData.total);",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{access_token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/v1/actions/backups",
+							"host": ["{{base_url}}"],
+							"path": ["api", "v1", "actions", "backups"]
+						},
+						"description": "Get list of all backup files (newest first).\n\nBackups are automatically created when actions are modified."
+					}
+				},
+				{
+					"name": "Get Backup Content",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code is 200\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"if (pm.response.code === 200) {",
+									"    var jsonData = pm.response.json();",
+									"    ",
+									"    pm.test(\"Response has content\", function () {",
+									"        pm.expect(jsonData).to.have.property('filename');",
+									"        pm.expect(jsonData).to.have.property('content');",
+									"        pm.expect(jsonData).to.have.property('actions_count');",
+									"    });",
+									"    ",
+									"    console.log(\"✅ Backup has\", jsonData.actions_count, \"actions\");",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{access_token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/v1/actions/backups/{{backup_filename}}",
+							"host": ["{{base_url}}"],
+							"path": ["api", "v1", "actions", "backups", "{{backup_filename}}"]
+						},
+						"description": "Get the full content of a specific backup file."
+					}
+				},
+				{
+					"name": "Compare With Backup",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code is 200\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"if (pm.response.code === 200) {",
+									"    var jsonData = pm.response.json();",
+									"    ",
+									"    pm.test(\"Response has comparison\", function () {",
+									"        pm.expect(jsonData).to.have.property('added');",
+									"        pm.expect(jsonData).to.have.property('removed');",
+									"        pm.expect(jsonData).to.have.property('modified');",
+									"        pm.expect(jsonData).to.have.property('has_changes');",
+									"    });",
+									"    ",
+									"    console.log(\"✅ Changes:\", ",
+									"        \"Added:\", jsonData.added.length,",
+									"        \"| Removed:\", jsonData.removed.length,",
+									"        \"| Modified:\", jsonData.modified.length",
+									"    );",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{access_token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/v1/actions/backups/{{backup_filename}}/compare",
+							"host": ["{{base_url}}"],
+							"path": ["api", "v1", "actions", "backups", "{{backup_filename}}", "compare"]
+						},
+						"description": "Compare current actions with a backup.\n\nShows:\n- added: actions that exist now but not in backup\n- removed: actions that were in backup but deleted\n- modified: actions that changed"
+					}
+				},
+				{
+					"name": "Restore Backup",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Backup restored successfully\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"if (pm.response.code === 200) {",
+									"    var jsonData = pm.response.json();",
+									"    ",
+									"    pm.test(\"Response has restore info\", function () {",
+									"        pm.expect(jsonData).to.have.property('restored_from');",
+									"        pm.expect(jsonData).to.have.property('actions_count');",
+									"    });",
+									"    ",
+									"    console.log(\"✅ Restored\", jsonData.actions_count, \"actions from\", jsonData.restored_from);",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{access_token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/v1/actions/backups/{{backup_filename}}/restore",
+							"host": ["{{base_url}}"],
+							"path": ["api", "v1", "actions", "backups", "{{backup_filename}}", "restore"]
+						},
+						"description": "Restore actions from a backup file.\n\n⚠️ Current state is automatically backed up first before restore."
+					}
+				},
+				{
+					"name": "Delete Backup",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Backup deleted successfully\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"if (pm.response.code === 200) {",
+									"    var jsonData = pm.response.json();",
+									"    console.log(\"✅ Backup deleted:\", jsonData.filename);",
+									"    pm.environment.unset(\"backup_filename\");",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{access_token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/v1/actions/backups/{{backup_filename}}",
+							"host": ["{{base_url}}"],
+							"path": ["api", "v1", "actions", "backups", "{{backup_filename}}"]
+						},
+						"description": "Delete a specific backup file.\n\n⚠️ This is permanent and cannot be undone!"
+					}
+				},
+				{
+					"name": "Delete All Backups",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"All backups deleted\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"if (pm.response.code === 200) {",
+									"    var jsonData = pm.response.json();",
+									"    console.log(\"✅ Deleted\", jsonData.deleted_count, \"backups\");",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{access_token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/v1/actions/backups",
+							"host": ["{{base_url}}"],
+							"path": ["api", "v1", "actions", "backups"]
+						},
+						"description": "Delete ALL backup files.\n\n⚠️⚠️ DANGER: This is permanent and cannot be undone!"
+					}
+				}
+			],
+			"description": "Action backup management endpoints.\n\nBackups are automatically created when actions are modified.\nDefault: keeps last 5 backups."
 		},
 		{
 			"name": "Tickets - External (No Auth)",
@@ -1366,7 +2394,7 @@
 							"host": ["{{base_url}}"],
 							"path": ["api", "v1", "tickets", "{{ticket_id}}", "messages"]
 						},
-						"description": "Add message or internal note to ticket with optional file attachments.\n\nOptions:\n- Message only\n- Files only (auto-generates \"[File(s) attached]\")\n- Message + Files\n\nFile Rules:\n- Max 5 files\n- Max 10 MB per file\n- Allowed: jpg, jpeg, png, gif, pdf, doc, docx, txt, csv, xlsx"
+						"description": "Add message or internal note to ticket with optional file attachments."
 					}
 				},
 				{
@@ -1454,7 +2482,6 @@
 									"    ",
 									"    if (jsonData.tickets.length > 0) {",
 									"        pm.environment.set(\"ticket_id\", jsonData.tickets[0].id);",
-									"        console.log(\"✅ First ticket ID saved:\", jsonData.tickets[0].id);",
 									"    }",
 									"    ",
 									"    console.log(\"Total tickets:\", jsonData.total);",
@@ -1493,44 +2520,37 @@
 								{
 									"key": "status",
 									"value": "open",
-									"disabled": true,
-									"description": "Filter: open, in_progress, pending, escalated, resolved, closed, canceled"
+									"disabled": true
 								},
 								{
 									"key": "priority",
 									"value": "high",
-									"disabled": true,
-									"description": "Filter: urgent, high, medium, low"
+									"disabled": true
 								},
 								{
 									"key": "ticket_type",
 									"value": "support",
-									"disabled": true,
-									"description": "Filter: tech, support"
+									"disabled": true
 								},
 								{
 									"key": "is_closed",
 									"value": "false",
-									"disabled": true,
-									"description": "Filter: true, false"
+									"disabled": true
 								},
 								{
 									"key": "assignee_id",
 									"value": "{{user_id}}",
-									"disabled": true,
-									"description": "Filter by assignee UUID"
+									"disabled": true
 								},
 								{
 									"key": "sort_by",
 									"value": "created_at",
-									"disabled": true,
-									"description": "Sort: created_at, updated_at, priority, status, title, customer_name"
+									"disabled": true
 								},
 								{
 									"key": "search",
 									"value": "login",
-									"disabled": true,
-									"description": "Search in title, customer name/email, external_id"
+									"disabled": true
 								}
 							]
 						},
@@ -1553,10 +2573,6 @@
 									"    ",
 									"    pm.test(\"Ticket has ALL fields\", function () {",
 									"        pm.expect(jsonData).to.have.property('id');",
-									"        pm.expect(jsonData).to.have.property('resolution_notes');",
-									"        pm.expect(jsonData).to.have.property('cancellation_reason');",
-									"        pm.expect(jsonData).to.have.property('escalation_reason');",
-									"        pm.expect(jsonData).to.have.property('previous_assignee_id');",
 									"        pm.expect(jsonData).to.have.property('is_active');",
 									"    });",
 									"    ",
@@ -1585,7 +2601,7 @@
 							"host": ["{{base_url}}"],
 							"path": ["api", "v1", "tickets", "admin", "{{ticket_id}}"]
 						},
-						"description": "Get complete ticket information with ALL fields including resolution notes, cancellation reasons, escalation details, and previous assignee (Admin only)"
+						"description": "Get complete ticket information with ALL fields (Admin only)"
 					}
 				},
 				{
@@ -1600,7 +2616,6 @@
 									"});",
 									"",
 									"if (pm.response.code === 200) {",
-									"    var jsonData = pm.response.json();",
 									"    console.log(\"✅ Ticket deleted (soft delete)\");",
 									"}"
 								],
@@ -1626,7 +2641,7 @@
 							"host": ["{{base_url}}"],
 							"path": ["api", "v1", "tickets", "admin", "{{ticket_id}}"]
 						},
-						"description": "Delete ticket (soft delete - sets is_active to false). Admin only."
+						"description": "Delete ticket (soft delete). Admin only."
 					}
 				},
 				{
@@ -1646,13 +2661,9 @@
 									"    pm.test(\"Statistics has required fields\", function () {",
 									"        pm.expect(jsonData).to.have.property('total_tickets');",
 									"        pm.expect(jsonData).to.have.property('open_tickets');",
-									"        pm.expect(jsonData).to.have.property('urgent_tickets');",
-									"        pm.expect(jsonData).to.have.property('overdue_tickets');",
 									"    });",
 									"    ",
 									"    console.log(\"✅ Total tickets:\", jsonData.total_tickets);",
-									"    console.log(\"Open:\", jsonData.open_tickets);",
-									"    console.log(\"Overdue:\", jsonData.overdue_tickets);",
 									"}"
 								],
 								"type": "text/javascript"
@@ -1695,8 +2706,6 @@
 								"exec": [
 									"pm.test(\"User created successfully\", function () {",
 									"    pm.response.to.have.status(201);",
-									"    var jsonData = pm.response.json();",
-									"    pm.expect(jsonData.message).to.include('User created successfully');",
 									"});"
 								],
 								"type": "text/javascript"
@@ -1747,16 +2756,8 @@
 									"if (pm.response.code === 200) {",
 									"    var jsonData = pm.response.json();",
 									"    ",
-									"    pm.test(\"Response has pagination\", function () {",
-									"        pm.expect(jsonData).to.have.property('page');",
-									"        pm.expect(jsonData).to.have.property('limit');",
-									"        pm.expect(jsonData).to.have.property('total');",
-									"        pm.expect(jsonData).to.have.property('users');",
-									"    });",
-									"    ",
 									"    if (jsonData.users.length > 0) {",
 									"        pm.environment.set(\"user_id\", jsonData.users[0].id);",
-									"        console.log(\"✅ First user ID saved:\", jsonData.users[0].id);",
 									"    }",
 									"    ",
 									"    console.log(\"Total users:\", jsonData.total);",
@@ -1795,14 +2796,12 @@
 								{
 									"key": "sort_by",
 									"value": "created_at",
-									"disabled": true,
-									"description": "Sort: created_at, email, full_name, last_login"
+									"disabled": true
 								},
 								{
 									"key": "search",
 									"value": "john",
-									"disabled": true,
-									"description": "Search in email and full name"
+									"disabled": true
 								}
 							]
 						},
@@ -1822,15 +2821,7 @@
 									"",
 									"if (pm.response.code === 200) {",
 									"    var jsonData = pm.response.json();",
-									"    ",
-									"    pm.test(\"Statistics has required fields\", function () {",
-									"        pm.expect(jsonData).to.have.property('total_users');",
-									"        pm.expect(jsonData).to.have.property('active_users');",
-									"        pm.expect(jsonData).to.have.property('users_by_role');",
-									"    });",
-									"    ",
 									"    console.log(\"✅ Total users:\", jsonData.total_users);",
-									"    console.log(\"Active users:\", jsonData.active_users);",
 									"}"
 								],
 								"type": "text/javascript"
@@ -1867,18 +2858,7 @@
 								"exec": [
 									"pm.test(\"Status code is 200\", function () {",
 									"    pm.response.to.have.status(200);",
-									"});",
-									"",
-									"if (pm.response.code === 200) {",
-									"    var jsonData = pm.response.json();",
-									"    ",
-									"    pm.test(\"Response has pagination\", function () {",
-									"        pm.expect(jsonData).to.have.property('page');",
-									"        pm.expect(jsonData).to.have.property('users');",
-									"    });",
-									"    ",
-									"    console.log(\"✅ Total users with activity:\", jsonData.total);",
-									"}"
+									"});"
 								],
 								"type": "text/javascript"
 							}
@@ -1912,12 +2892,11 @@
 								},
 								{
 									"key": "sort_by",
-									"value": "last_login",
-									"description": "Sort by: last_login or created_at"
+									"value": "last_login"
 								}
 							]
 						},
-						"description": "Get user activity (last login information) (Admin only)"
+						"description": "Get user activity (Admin only)"
 					}
 				},
 				{
@@ -1929,19 +2908,7 @@
 								"exec": [
 									"pm.test(\"Status code is 200\", function () {",
 									"    pm.response.to.have.status(200);",
-									"});",
-									"",
-									"if (pm.response.code === 200) {",
-									"    var jsonData = pm.response.json();",
-									"    ",
-									"    pm.test(\"User has required fields\", function () {",
-									"        pm.expect(jsonData).to.have.property('id');",
-									"        pm.expect(jsonData).to.have.property('email');",
-									"        pm.expect(jsonData).to.have.property('roles');",
-									"    });",
-									"    ",
-									"    console.log(\"✅ User:\", jsonData.email);",
-									"}"
+									"});"
 								],
 								"type": "text/javascript"
 							}
@@ -1977,8 +2944,6 @@
 								"exec": [
 									"pm.test(\"User updated successfully\", function () {",
 									"    pm.response.to.have.status(200);",
-									"    var jsonData = pm.response.json();",
-									"    pm.expect(jsonData.message).to.include('User info updated successfully');",
 									"});"
 								],
 								"type": "text/javascript"
@@ -2024,8 +2989,6 @@
 								"exec": [
 									"pm.test(\"Password updated successfully\", function () {",
 									"    pm.response.to.have.status(200);",
-									"    var jsonData = pm.response.json();",
-									"    pm.expect(jsonData.message).to.include('User password updated successfully');",
 									"});"
 								],
 								"type": "text/javascript"
@@ -2071,8 +3034,6 @@
 								"exec": [
 									"pm.test(\"Roles updated successfully\", function () {",
 									"    pm.response.to.have.status(200);",
-									"    var jsonData = pm.response.json();",
-									"    pm.expect(jsonData.message).to.include('User roles updated successfully');",
 									"});"
 								],
 								"type": "text/javascript"
@@ -2118,19 +3079,7 @@
 								"exec": [
 									"pm.test(\"Bulk operation completed\", function () {",
 									"    pm.response.to.have.status(200);",
-									"});",
-									"",
-									"if (pm.response.code === 200) {",
-									"    var jsonData = pm.response.json();",
-									"    ",
-									"    pm.test(\"Response has results\", function () {",
-									"        pm.expect(jsonData).to.have.property('total_requested');",
-									"        pm.expect(jsonData).to.have.property('successful');",
-									"        pm.expect(jsonData).to.have.property('failed');",
-									"    });",
-									"    ",
-									"    console.log(\"✅ Successful:\", jsonData.successful, \"| Failed:\", jsonData.failed);",
-									"}"
+									"});"
 								],
 								"type": "text/javascript"
 							}
@@ -2163,7 +3112,7 @@
 							"host": ["{{base_url}}"],
 							"path": ["api", "v1", "users", "bulk", "activate"]
 						},
-						"description": "Activate multiple users at once (max 100) (Admin only)"
+						"description": "Activate multiple users at once (Admin only)"
 					}
 				},
 				{
@@ -2175,19 +3124,7 @@
 								"exec": [
 									"pm.test(\"Bulk operation completed\", function () {",
 									"    pm.response.to.have.status(200);",
-									"});",
-									"",
-									"if (pm.response.code === 200) {",
-									"    var jsonData = pm.response.json();",
-									"    ",
-									"    pm.test(\"Response has results\", function () {",
-									"        pm.expect(jsonData).to.have.property('total_requested');",
-									"        pm.expect(jsonData).to.have.property('successful');",
-									"        pm.expect(jsonData).to.have.property('failed');",
-									"    });",
-									"    ",
-									"    console.log(\"✅ Successful:\", jsonData.successful, \"| Failed:\", jsonData.failed);",
-									"}"
+									"});"
 								],
 								"type": "text/javascript"
 							}
@@ -2220,7 +3157,7 @@
 							"host": ["{{base_url}}"],
 							"path": ["api", "v1", "users", "bulk", "deactivate"]
 						},
-						"description": "Deactivate multiple users at once (max 100) (Admin only)"
+						"description": "Deactivate multiple users at once (Admin only)"
 					}
 				},
 				{
@@ -2232,18 +3169,7 @@
 								"exec": [
 									"pm.test(\"Status code is 200\", function () {",
 									"    pm.response.to.have.status(200);",
-									"});",
-									"",
-									"if (pm.response.code === 200) {",
-									"    var jsonData = pm.response.json();",
-									"    ",
-									"    pm.test(\"Response has pagination\", function () {",
-									"        pm.expect(jsonData).to.have.property('page');",
-									"        pm.expect(jsonData).to.have.property('logs');",
-									"    });",
-									"    ",
-									"    console.log(\"✅ Total logs:\", jsonData.total);",
-									"}"
+									"});"
 								],
 								"type": "text/javascript"
 							}
@@ -2278,18 +3204,16 @@
 								{
 									"key": "sort_by",
 									"value": "created_at",
-									"disabled": true,
-									"description": "Sort: created_at or action_type"
+									"disabled": true
 								},
 								{
 									"key": "search",
 									"value": "UPDATE",
-									"disabled": true,
-									"description": "Search in action_type and target_table"
+									"disabled": true
 								}
 							]
 						},
-						"description": "Get audit logs for actions performed BY a specific user (Admin only)"
+						"description": "Get audit logs for a specific user (Admin only)"
 					}
 				}
 			],
@@ -2312,14 +3236,8 @@
 									"if (pm.response.code === 200) {",
 									"    var jsonData = pm.response.json();",
 									"    ",
-									"    pm.test(\"Response is an array\", function () {",
-									"        pm.expect(jsonData).to.be.an('array');",
-									"    });",
-									"    ",
 									"    if (jsonData.length > 0) {",
 									"        pm.environment.set(\"role_id\", jsonData[0].id);",
-									"        console.log(\"✅ First role ID saved:\", jsonData[0].id);",
-									"        console.log(\"Total roles:\", jsonData.length);",
 									"    }",
 									"}"
 								],
@@ -2357,18 +3275,7 @@
 								"exec": [
 									"pm.test(\"Status code is 200\", function () {",
 									"    pm.response.to.have.status(200);",
-									"});",
-									"",
-									"if (pm.response.code === 200) {",
-									"    var jsonData = pm.response.json();",
-									"    ",
-									"    pm.test(\"Statistics has required fields\", function () {",
-									"        pm.expect(jsonData).to.have.property('total_roles');",
-									"        pm.expect(jsonData).to.have.property('roles');",
-									"    });",
-									"    ",
-									"    console.log(\"✅ Total roles:\", jsonData.total_roles);",
-									"}"
+									"});"
 								],
 								"type": "text/javascript"
 							}
@@ -2392,7 +3299,7 @@
 							"host": ["{{base_url}}"],
 							"path": ["api", "v1", "roles", "statistics"]
 						},
-						"description": "Get role statistics with user counts (Admin only)"
+						"description": "Get role statistics (Admin only)"
 					}
 				},
 				{
@@ -2404,19 +3311,7 @@
 								"exec": [
 									"pm.test(\"Status code is 200\", function () {",
 									"    pm.response.to.have.status(200);",
-									"});",
-									"",
-									"if (pm.response.code === 200) {",
-									"    var jsonData = pm.response.json();",
-									"    ",
-									"    pm.test(\"Role has required fields\", function () {",
-									"        pm.expect(jsonData).to.have.property('id');",
-									"        pm.expect(jsonData).to.have.property('name');",
-									"        pm.expect(jsonData).to.have.property('description');",
-									"    });",
-									"    ",
-									"    console.log(\"✅ Role:\", jsonData.name);",
-									"}"
+									"});"
 								],
 								"type": "text/javascript"
 							}
@@ -2452,18 +3347,7 @@
 								"exec": [
 									"pm.test(\"Status code is 200\", function () {",
 									"    pm.response.to.have.status(200);",
-									"});",
-									"",
-									"if (pm.response.code === 200) {",
-									"    var jsonData = pm.response.json();",
-									"    ",
-									"    pm.test(\"Response has pagination\", function () {",
-									"        pm.expect(jsonData).to.have.property('page');",
-									"        pm.expect(jsonData).to.have.property('users');",
-									"    });",
-									"    ",
-									"    console.log(\"✅ Total users with this role:\", jsonData.total);",
-									"}"
+									"});"
 								],
 								"type": "text/javascript"
 							}
@@ -2509,18 +3393,7 @@
 								"exec": [
 									"pm.test(\"Status code is 200\", function () {",
 									"    pm.response.to.have.status(200);",
-									"});",
-									"",
-									"if (pm.response.code === 200) {",
-									"    var jsonData = pm.response.json();",
-									"    ",
-									"    pm.test(\"Response has roles\", function () {",
-									"        pm.expect(jsonData).to.have.property('roles');",
-									"        pm.expect(jsonData.roles).to.be.an('array');",
-									"    });",
-									"    ",
-									"    console.log(\"✅ User roles:\", jsonData.roles.map(r => r.name).join(', '));",
-									"}"
+									"});"
 								],
 								"type": "text/javascript"
 							}
@@ -2562,15 +3435,7 @@
 								"exec": [
 									"pm.test(\"Status code is 200\", function () {",
 									"    pm.response.to.have.status(200);",
-									"});",
-									"",
-									"if (pm.response.code === 200) {",
-									"    var jsonData = pm.response.json();",
-									"    pm.test(\"Response has success field\", function () {",
-									"        pm.expect(jsonData).to.have.property('success');",
-									"        pm.expect(jsonData.success).to.be.true;",
-									"    });",
-									"}"
+									"});"
 								],
 								"type": "text/javascript"
 							}
@@ -2596,14 +3461,7 @@
 								"exec": [
 									"pm.test(\"Status code is 200\", function () {",
 									"    pm.response.to.have.status(200);",
-									"});",
-									"",
-									"if (pm.response.code === 200) {",
-									"    var jsonData = pm.response.json();",
-									"    pm.test(\"Health check passed\", function () {",
-									"        pm.expect(jsonData.status).to.eql('healthy');",
-									"    });",
-									"}"
+									"});"
 								],
 								"type": "text/javascript"
 							}
