@@ -145,7 +145,7 @@ class InvalidActionFieldException(ParsingException):
 
 class UnsupportedActionTypeException(ParsingException):
     """Exception for unsupported action types"""
-    SUPPORTED_TYPES = ["api_request", "sql_query", "vector_query", "knowledge_query", "rpc_request", "internal"]
+    SUPPORTED_TYPES = ["api_request", "rpc_request", "internal"]
     
     def __init__(self, action_type: str):
         message = (
@@ -199,21 +199,6 @@ class InvalidResponseModeException(ParsingException):
         )
 
 
-class InvalidConnectorTypeException(ParsingException):
-    """Exception for invalid database connector types"""
-    SUPPORTED_CONNECTORS = ["sqlite", "postgres"]
-    
-    def __init__(self, connector: str):
-        message = (
-            f"Connector type '{connector}' is not supported. "
-            f"Supported connectors: {', '.join(self.SUPPORTED_CONNECTORS)}"
-        )
-        super().__init__(
-            error_type="InvalidConnectorType",
-            message=message
-        )
-
-
 class BodyParamOnGetRequestException(ParsingException):
     """Exception when body parameter is used with GET request"""
     def __init__(self, param_name: str):
@@ -237,34 +222,41 @@ class PathParamNotInUrlException(ParsingException):
         )
 
 
-class VectorParamNotTopicException(ParsingException):
-    """Exception when 'vector' param_type is used on non-topic parameter"""
-    def __init__(self, param_name: str):
-        message = (
-            f"Parameter type 'vector' can only be used with 'topic' parameter, "
-            f"not with '{param_name}'"
-        )
-        super().__init__(
-            error_type="InvalidParamType",
-            message=message
-        )
-
-
-class ValuesNotAllowedInQueryException(ParsingException):
-    """Exception when 'values' field is used in query-type actions"""
-    def __init__(self, action_type: str):
-        message = f"'values' field in response_config is not allowed for '{action_type}' actions"
-        super().__init__(
-            error_type="InvalidActionField",
-            message=message
-        )
-
-
 class RpcFieldInNonRpcActionException(ParsingException):
     """Exception when RPC-specific fields are used in non-RPC actions"""
     def __init__(self, field: str, action_type: str):
         message = f"Field '{field}' is only allowed in 'rpc_request' actions, not in '{action_type}'"
         super().__init__(
             error_type="InvalidActionStructure",
+            message=message
+        )
+
+
+class InternalActionNotAllowedException(ParsingException):
+    """Exception when trying to create/update/delete internal actions"""
+    def __init__(self, operation: str = "modify"):
+        message = f"Cannot {operation} internal actions. They are system-defined and read-only."
+        super().__init__(
+            error_type="InternalActionNotAllowed",
+            message=message
+        )
+
+
+class DuplicateActionNameException(ParsingException):
+    """Exception when action name already exists"""
+    def __init__(self, name: str):
+        message = f"Action with name '{name}' already exists"
+        super().__init__(
+            error_type="DuplicateActionName",
+            message=message
+        )
+
+
+class ActionNotFoundException(ParsingException):
+    """Exception when action is not found"""
+    def __init__(self, action_id: str):
+        message = f"Action with ID '{action_id}' not found"
+        super().__init__(
+            error_type="ActionNotFound",
             message=message
         )
