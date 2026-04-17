@@ -1,4 +1,5 @@
 # core/config.py
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import Optional, List
 from pathlib import Path
@@ -58,7 +59,22 @@ class Settings(BaseSettings):
     def ACTIONS_BACKUP_DIR(self) -> Path:
         """Get backup directory path"""
         return Path(self.ACTIONS_FILE_PATH).parent / "backups"
+
+    # ✅ Agent Configuration
+    AGENT_CONFIG_FILE_PATH: str = "data/agent_config.json"
+    AGENT_CONFIG_BACKUP_ENABLED: bool = True
+    AGENT_CONFIG_BACKUP_COUNT: int = 5
+
+    @property
+    def AGENT_CONFIG_FILE_FULL_PATH(self) -> Path:
+        """Get full path to agent config file"""
+        return Path(self.AGENT_CONFIG_FILE_PATH)
     
+    @property
+    def AGENT_CONFIG_BACKUP_DIR(self) -> Path:
+        """Get agent config backup directory path"""
+        return Path(self.AGENT_CONFIG_FILE_PATH).parent / "backups"
+
     model_config = SettingsConfigDict(
         env_file=".env",
         case_sensitive=True,
