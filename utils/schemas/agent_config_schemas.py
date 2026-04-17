@@ -1,25 +1,15 @@
 # utils/schemas/agent_config_schemas.py
 
-from pydantic import BaseModel, Field, field_validator, HttpUrl, ConfigDict, model_validator
-from typing import Optional, Dict, Any, Literal, List, Union
+from pydantic import BaseModel, Field, HttpUrl, ConfigDict, model_validator, RootModel
+from typing import Optional, Dict, Any, Literal, List
 from uuid import UUID
 from datetime import datetime
-import re
 
-# ==================== Helper Functions & Enums ====================
-
-ENV_VAR_PATTERN = re.compile(r"^{{env\.([A-Z0-9_]+)}}$")
+# --- Strict Models for KNOWN Sections ---
+# These ensure that if a known section exists, it has the correct structure.
 
 class BaseConfigModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
-
-def validate_env_var(value: str) -> str:
-    """Validator for environment variable format {{env.VAR_NAME}}"""
-    if isinstance(value, str) and not ENV_VAR_PATTERN.match(value):
-        raise ValueError("Invalid environment variable format. Use {{env.VAR_NAME}}")
-    return value
-
-# ==================== Level 1: Nested Models (Required fields) ====================
 
 class SystemContext(BaseConfigModel):
     title: str = Field(..., min_length=2, max_length=200)
@@ -32,28 +22,6 @@ class ApiRequestDefaults(BaseConfigModel):
     base_url: HttpUrl
     timeout: int = Field(..., gt=0)
     headers: Dict[str, str]
-    on_error: str
-
-class RpcRequestDefaults(BaseConfigModel):
-    protocol: Literal["grpc"]
-    on_error: str
-
-class EmbeddingConfig(BaseConfigModel):
-    location: str
-    provider: str
-    model_name: str
-    dimensions: int = Field(..., gt=0)
-    rate_limit_delay_seconds: int = Field(..., ge=0)
-    api_key: Optional[str] = None
-    local_loading_params: Optional[Dict[str, Any]] = None
-
-class VectorQueryDefaults(BaseConfigModel):
-    connector: str
-    connection_string: str
-    embedding_config: EmbeddingConfig
-    on_error: str
-
-class InternalDefaults(BaseConfigModel):
     on_error: str
 
 class LLMLocalLoadingParams(BaseConfigModel):
@@ -74,79 +42,57 @@ class LLMConfig(BaseConfigModel):
     system_prompt_template: str
 
 class GlobalDefaults(BaseConfigModel):
-    api_request: Optional[ApiRequestDefaults] = None
-    rpc_request: Optional[RpcRequestDefaults] = None
-    vector_query: Optional[VectorQueryDefaults] = None
-    internal: Optional[InternalDefaults] = None
+    model_config = ConfigDict(extra="allow") # Allow any sub-keys like api_request, etc.
 
-# ==================== Level 2: Main Config Model (for Read/Full Update) ====================
+# --- Root Model for Flexible Validation ---
+# This is the main model used for validation. It ensures required sections exist
+# and validates known sections, while allowing any other new sections.
 
-class AgentConfig(BaseConfigModel):
-    system_context: SystemContext
-    global_defaults: Optional[GlobalDefaults] = None
-    llm_config: LLMConfig
+KNOWN_SECTIONS = {
+    "system_context": SystemContext,
+    "llm_config": LLMConfig,
+    "global_defaults": GlobalDefaults
+}
 
-# ==================== Level 3: Partial Update Models (All fields optional) ====================
+class AgentConfig(RootModel[Dict[str, Any]]):
+    @model_validator(mode='before')
+    @classmethod
+    def validate_config(cls, data: Any) -> Any:
+        if not isinstance(data, dict):
+            raise TypeError("Configuration must be a dictionary.")
 
-class SystemContextUpdate(BaseConfigModel):
-    title: Optional[str] = Field(None, min_length=2, max_length=200)
-    description: Optional[str] = Field(None, min_length=10)
-    version: Optional[str] = Field(None, pattern=r"^\d+\.\d+\.\d+$")
-    tone: Optional[str] = Field(None, min_length=5)
+        # 1. Ensure required sections exist
+        required = ["system_context", "llm_config"]
+        for key in required:
+            if key not in data:
+                raise ValueError(f"Missing required configuration section: '{key}'")
 
-class ApiRequestDefaultsUpdate(BaseConfigModel):
-    protocol: Optional[Literal["http", "https"]] = None
-    base_url: Optional[HttpUrl] = None
-    timeout: Optional[int] = Field(None, gt=0)
-    headers: Optional[Dict[str, str]] = None
-    on_error: Optional[str] = None
+        # 2. Validate known sections against their strict models
+        errors = {}
+        for key, model in KNOWN_SECTIONS.items():
+            if key in data and data[key] is not None:
+                try:
+                    model.model_validate(data[key])
+                except Exception as e:
+                    errors[key] = e.errors()
+        
+        if errors:
+            # Re-raise as a single validation error for FastAPI to catch
+            raise ValueError(f"Validation errors in known sections: {errors}")
 
-# ✅ START: ADDED/UPDATED CODE
-class RpcRequestDefaultsUpdate(BaseConfigModel):
-    protocol: Optional[Literal["grpc"]] = None
-    on_error: Optional[str] = None
+        # 3. If everything is fine, return the data to be stored
+        return data
 
-class VectorQueryDefaultsUpdate(BaseConfigModel):
-    connector: Optional[str] = None
-    connection_string: Optional[str] = None
-    embedding_config: Optional[EmbeddingConfig] = None
-    on_error: Optional[str] = None
-
-class InternalDefaultsUpdate(BaseConfigModel):
-    on_error: Optional[str] = None
-
-class GlobalDefaultsUpdate(BaseConfigModel):
-    api_request: Optional[ApiRequestDefaultsUpdate] = None
-    rpc_request: Optional[RpcRequestDefaultsUpdate] = None
-    vector_query: Optional[VectorQueryDefaultsUpdate] = None
-    internal: Optional[InternalDefaultsUpdate] = None
-# ✅ END: ADDED/UPDATED CODE
-
-class LLMLocalLoadingParamsUpdate(BaseConfigModel):
-    base_url: Optional[HttpUrl] = None
-    gguf_file: Optional[str] = None
-    context_window: Optional[int] = Field(None, gt=0)
-    gpu_layers: Optional[int] = Field(None, ge=0)
-    quantization: Optional[Literal["int4", "int8", "f16", "f32"]] = None
-
-class LLMConfigUpdate(BaseConfigModel):
-    location: Optional[str] = None
-    provider: Optional[str] = None
-    model_name: Optional[str] = None
-    rate_limit_delay_seconds: Optional[int] = Field(None, ge=0)
-    temperature: Optional[float] = Field(None, ge=0.0, le=2.0)
-    max_tokens: Optional[int] = Field(None, gt=0)
-    local_loading_params: Optional[LLMLocalLoadingParamsUpdate] = None
-    system_prompt_template: Optional[str] = None
-
-# ==================== API Response Schemas ====================
+# --- API Response Schemas (unchanged) ---
 
 class Metadata(BaseModel):
     last_updated: Optional[datetime] = None
     updated_by: Optional[UUID] = None
     restored_from: Optional[str] = None
 
-class AgentConfigResponse(AgentConfig):
+class AgentConfigResponse(BaseModel):
+    # This allows any key, mirroring the flexible structure
+    model_config = ConfigDict(extra="allow")
     metadata: Metadata
 
 class ConfigSectionResponse(BaseModel):
@@ -172,12 +118,10 @@ class RestoreBackupResponse(BaseModel):
     restored_from: str
     backup_created: str
 
-class CompareResult(BaseModel):
-    added_keys: List[str]
-    removed_keys: List[str]
-    changed_keys: List[str]
-
-class CompareResponse(BaseModel):
+class BackupDeleteResponse(BaseModel):
+    message: str
     filename: str
-    has_changes: bool
-    changes: Dict[str, CompareResult]
+
+class BackupDeleteAllResponse(BaseModel):
+    message: str
+    deleted_count: int
