@@ -3482,356 +3482,307 @@
 			"description": "Health check and status endpoints"
 		},
 {
-    "name": "Agent Configuration (Admin Only)",
+    "name": "Agent Configuration",
     "item": [
         {
-            "name": "1. Configuration Management",
-            "item": [
+            "name": "Get Full Agent Configuration",
+            "event": [
                 {
-                    "name": "1.1 Initialize/Update Full Config (PUT)",
-                    "event": [
-                        {
-                            "listen": "test",
-                            "script": {
-                                "exec": [
-                                    "pm.test(\"Configuration updated successfully\", () => {",
-                                    "    pm.response.to.have.status(200);",
-                                    "    const jsonData = pm.response.json();",
-                                    "    pm.expect(jsonData.message).to.include('Full configuration updated successfully');",
-                                    "    pm.expect(jsonData).to.have.property('backup_created');",
-                                    "});",
-                                    "console.log(\"✅ Full config updated. Backup created:\", pm.response.json().backup_created);"
-                                ],
-                                "type": "text/javascript"
-                            }
-                        }
-                    ],
-                    "request": {
-                        "method": "PUT",
-                        "header": [],
-                        "body": {
-                            "mode": "raw",
-                            "raw": "{\n  \"system_context\": {\n    \"title\": \"ShopEasy Customer Support Agent\",\n    \"description\": \"You are the primary AI support agent for ShopEasy, a leading online retailer. Your responsibilities include tracking orders, facilitating returns/refunds, recommending products based on semantic preferences, and providing store information. You must verify sensitive actions (like address changes or refunds) before execution.\",\n    \"version\": \"2.1.0\",\n    \"tone\": \"Warm, professional, and efficient. Express empathy when a customer is frustrated (e.g., missing orders) but remain focused on solving the problem.\"\n  },\n  \"global_defaults\": {\n    \"api_request\": {\n      \"protocol\": \"https\",\n      \"base_url\": \"https://api.shopeasy.com/v1\",\n      \"timeout\": 10000,\n      \"headers\": {\n        \"Content-Type\": \"application/json\",\n        \"Authorization\": \"Bearer {{env.SHOPEASY_API_KEY}}\",\n        \"User-Agent\": \"ShopEasy-AI-Agent/v2.1\"\n      },\n      \"on_error\": \"I apologize, but I am currently unable to access that part of the ShopEasy system. Please try again later or ask to speak with a human agent.\"\n    }\n  },\n  \"llm_config\": {\n    \"location\": \"local\",\n    \"provider\": \"google\",\n    \"model_name\": \"gemini-2.5-flash\",\n    \"rate_limit_delay_seconds\": 0,\n    \"temperature\": 0.1,\n    \"max_tokens\": 2048,\n    \"local_loading_params\": {\n      \"base_url\": \"http://localhost:11434/v1\",\n      \"gguf_file\": \"Qwen3.5-9B.Q4_K_S.gguf\",\n      \"context_window\": 16384,\n      \"gpu_layers\": 35,\n      \"quantization\": \"int4\"\n    },\n    \"system_prompt_template\": \"IDENTITY:\\n{{title}}\\n\\nROLE:\\n{{description}}\\n\\nTONE:\\n{{tone}}\\n\\nCONSTRAINTS:\\n- Do not make up order numbers.\\n- Always ask for confirmation before modifying data.\\n- If a tool fails, inform the user clearly.\"\n  },\n  \"user_feedback_config\": {\n    \"enabled\": true,\n    \"prompt\": \"Was this response helpful?\"\n  }\n}",
-                            "options": {
-                                "raw": {
-                                    "language": "json"
-                                }
-                            }
-                        },
-                        "url": {
-                            "raw": "{{base_url}}/api/v1/agent-config",
-                            "host": [
-                                "{{base_url}}"
-                            ],
-                            "path": [
-                                "api",
-                                "v1",
-                                "agent-config"
-                            ]
-                        },
-                        "description": "Sets the entire configuration. Use this for initial setup or major overhauls. A backup of the previous state is created automatically."
-                    },
-                    "response": []
-                },
-                {
-                    "name": "1.2 Get Full Configuration",
-                    "event": [
-                        {
-                            "listen": "test",
-                            "script": {
-                                "exec": [
-                                    "pm.test(\"Get config successful\", () => {",
-                                    "    pm.response.to.have.status(200);",
-                                    "    const jsonData = pm.response.json();",
-                                    "    pm.expect(jsonData).to.have.property('system_context');",
-                                    "    pm.expect(jsonData).to.have.property('llm_config');",
-                                    "    pm.expect(jsonData).to.have.property('metadata');",
-                                    "});",
-                                    "console.log(\"✅ Full config loaded. Last updated by:\", pm.response.json().metadata.updated_by);"
-                                ],
-                                "type": "text/javascript"
-                            }
-                        }
-                    ],
-                    "request": {
-                        "method": "GET",
-                        "header": [],
-                        "url": {
-                            "raw": "{{base_url}}/api/v1/agent-config",
-                            "host": [
-                                "{{base_url}}"
-                            ],
-                            "path": [
-                                "api",
-                                "v1",
-                                "agent-config"
-                            ]
-                        },
-                        "description": "Retrieves the entire agent configuration, including metadata."
-                    },
-                    "response": []
-                },
-                {
-                    "name": "1.3 Deep-Update a Nested Value (PATCH)",
-                    "event": [
-                        {
-                            "listen": "test",
-                            "script": {
-                                "exec": [
-                                    "pm.test(\"Section updated successfully\", () => {",
-                                    "    pm.response.to.have.status(200);",
-                                    "    const jsonData = pm.response.json();",
-                                    "    pm.expect(jsonData.message).to.include('updated successfully');",
-                                    "});",
-                                    "console.log(\"✅ Section 'llm_config' updated. New backup created.\");"
-                                ],
-                                "type": "text/javascript"
-                            }
-                        }
-                    ],
-                    "request": {
-                        "method": "PATCH",
-                        "header": [],
-                        "body": {
-                            "mode": "raw",
-                            "raw": "{\n    \"local_loading_params\": {\n        \"gpu_layers\": 40,\n        \"quantization\": \"f32\"\n    }\n}",
-                            "options": {
-                                "raw": {
-                                    "language": "json"
-                                }
-                            }
-                        },
-                        "url": {
-                            "raw": "{{base_url}}/api/v1/agent-config/sections/llm_config",
-                            "host": [
-                                "{{base_url}}"
-                            ],
-                            "path": [
-                                "api",
-                                "v1",
-                                "agent-config",
-                                "sections",
-                                "llm_config"
-                            ]
-                        },
-                        "description": "Updates only `gpu_layers` and `quantization` inside `local_loading_params` (which is inside `llm_config`), leaving everything else untouched. This demonstrates deep-merging."
-                    },
-                    "response": []
-                },
-                {
-                    "name": "1.4 Add/Update a Dynamic Section (PATCH)",
-                    "event": [
-                        {
-                            "listen": "test",
-                            "script": {
-                                "exec": [
-                                    "pm.test(\"Dynamic section updated successfully\", () => {",
-                                    "    pm.response.to.have.status(200);",
-                                    "});"
-                                ],
-                                "type": "text/javascript"
-                            }
-                        }
-                    ],
-                    "request": {
-                        "method": "PATCH",
-                        "header": [],
-                        "body": {
-                            "mode": "raw",
-                            "raw": "{\n    \"enabled\": false,\n    \"log_level\": \"debug\",\n    \"new_nested_object\": {\n        \"key\": \"value\"\n    }\n}",
-                            "options": {
-                                "raw": {
-                                    "language": "json"
-                                }
-                            }
-                        },
-                        "url": {
-                            "raw": "{{base_url}}/api/v1/agent-config/sections/user_feedback_config",
-                            "host": [
-                                "{{base_url}}"
-                            ],
-                            "path": [
-                                "api",
-                                "v1",
-                                "agent-config",
-                                "sections",
-                                "user_feedback_config"
-                            ]
-                        },
-                        "description": "Updates the dynamic section named `user_feedback_config`. If the section doesn't exist, it will be created. This shows how to add new, unstructured configuration."
-                    },
-                    "response": []
+                    "listen": "test",
+                    "script": {
+                        "exec": [
+                            "pm.test(\"Get config successful\", () => {",
+                            "    pm.response.to.have.status(200);",
+                            "    const jsonData = pm.response.json();",
+                            "    pm.expect(jsonData).to.have.property('system_context');",
+                            "    pm.expect(jsonData).to.have.property('llm_config');",
+                            "    pm.expect(jsonData).to.have.property('metadata');",
+                            "});",
+                            "console.log(\"✅ Full config loaded. Last updated by:\", pm.response.json().metadata.updated_by);"
+                        ],
+                        "type": "text/javascript"
+                    }
                 }
             ],
-            "description": "Manage the main configuration file `agent_config.json`."
+            "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                    "raw": "{{base_url}}/api/v1/agent-config",
+                    "host": [
+                        "{{base_url}}"
+                    ],
+                    "path": [
+                        "api",
+                        "v1",
+                        "agent-config"
+                    ]
+                }
+            },
+            "response": []
         },
         {
-            "name": "2. Backup Management",
-            "item": [
+            "name": "Update Full Agent Configuration",
+            "event": [
                 {
-                    "name": "2.1 List All Backups",
-                    "event": [
-                        {
-                            "listen": "test",
-                            "script": {
-                                "exec": [
-                                    "pm.test(\"List backups successful\", () => { pm.response.to.have.status(200); });",
-                                    "const jsonData = pm.response.json();",
-                                    "if (jsonData.backups && jsonData.backups.length > 0) {",
-                                    "   // Save the latest backup filename to the environment",
-                                    "   pm.environment.set(\"agent_config_backup_filename\", jsonData.backups[0].filename);",
-                                    "   console.log('✅ Latest backup filename saved:', jsonData.backups[0].filename);",
-                                    "}"
-                                ],
-                                "type": "text/javascript"
-                            }
-                        }
-                    ],
-                    "request": {
-                        "method": "GET",
-                        "header": [],
-                        "url": {
-                            "raw": "{{base_url}}/api/v1/agent-config/backups",
-                            "host": [
-                                "{{base_url}}"
-                            ],
-                            "path": [
-                                "api",
-                                "v1",
-                                "agent-config",
-                                "backups"
-                            ]
-                        },
-                        "description": "Retrieves a list of all available configuration backups, newest first."
-                    },
-                    "response": []
-                },
-                {
-                    "name": "2.2 Get Backup Content",
-                    "request": {
-                        "method": "GET",
-                        "header": [],
-                        "url": {
-                            "raw": "{{base_url}}/api/v1/agent-config/backups/{{agent_config_backup_filename}}",
-                            "host": [
-                                "{{base_url}}"
-                            ],
-                            "path": [
-                                "api",
-                                "v1",
-                                "agent-config",
-                                "backups",
-                                "{{agent_config_backup_filename}}"
-                            ]
-                        },
-                        "description": "Retrieves the full content of a specific backup file. The filename is automatically set by the 'List All Backups' request."
-                    },
-                    "response": []
-                },
-                {
-                    "name": "2.3 Restore From Backup",
-                    "event": [
-                        {
-                            "listen": "test",
-                            "script": {
-                                "exec": [
-                                    "pm.test(\"Restore successful\", () => { pm.response.to.have.status(200); });",
-                                    "console.log(\"✅ Config restored from:\", pm.response.json().restored_from);"
-                                ],
-                                "type": "text/javascript"
-                            }
-                        }
-                    ],
-                    "request": {
-                        "method": "POST",
-                        "header": [],
-                        "url": {
-                            "raw": "{{base_url}}/api/v1/agent-config/backups/{{agent_config_backup_filename}}/restore",
-                            "host": [
-                                "{{base_url}}"
-                            ],
-                            "path": [
-                                "api",
-                                "v1",
-                                "agent-config",
-                                "backups",
-                                "{{agent_config_backup_filename}}",
-                                "restore"
-                            ]
-                        },
-                        "description": "Restores the configuration from a specific backup file. A backup of the current state is created before restoring."
-                    },
-                    "response": []
-                },
-                {
-                    "name": "2.4 Delete Single Backup",
-                    "event": [
-                        {
-                            "listen": "test",
-                            "script": {
-                                "exec": [
-                                    "pm.test(\"Delete successful\", () => { pm.response.to.have.status(200); });",
-                                    "console.log(\"✅ Backup deleted:\", pm.response.json().filename);"
-                                ],
-                                "type": "text/javascript"
-                            }
-                        }
-                    ],
-                    "request": {
-                        "method": "DELETE",
-                        "header": [],
-                        "url": {
-                            "raw": "{{base_url}}/api/v1/agent-config/backups/{{agent_config_backup_filename}}",
-                            "host": [
-                                "{{base_url}}"
-                            ],
-                            "path": [
-                                "api",
-                                "v1",
-                                "agent-config",
-                                "backups",
-                                "{{agent_config_backup_filename}}"
-                            ]
-                        },
-                        "description": "Deletes the backup file specified in the environment variable. This is a permanent action."
-                    },
-                    "response": []
-                },
-                {
-                    "name": "2.5 Delete All Backups",
-                    "event": [
-                        {
-                            "listen": "test",
-                            "script": {
-                                "exec": [
-                                    "pm.test(\"Delete all successful\", () => { pm.response.to.have.status(200); });",
-                                    "console.log('✅ All backups deleted. Count:', pm.response.json().deleted_count);"
-                                ],
-                                "type": "text/javascript"
-                            }
-                        }
-                    ],
-                    "request": {
-                        "method": "DELETE",
-                        "header": [],
-                        "url": {
-                            "raw": "{{base_url}}/api/v1/agent-config/backups",
-                            "host": [
-                                "{{base_url}}"
-                            ],
-                            "path": [
-                                "api",
-                                "v1",
-                                "agent-config",
-                                "backups"
-                            ]
-                        },
-                        "description": "⚠️ DANGER: This permanently deletes all backup files for the agent configuration."
-                    },
-                    "response": []
+                    "listen": "test",
+                    "script": {
+                        "exec": [
+                            "pm.test(\"Configuration updated successfully\", () => {",
+                            "    pm.response.to.have.status(200);",
+                            "    const jsonData = pm.response.json();",
+                            "    pm.expect(jsonData.message).to.include('Full configuration updated successfully');",
+                            "    pm.expect(jsonData).to.have.property('backup_created');",
+                            "});",
+                            "console.log(\"✅ Full config updated. Backup created:\", pm.response.json().backup_created);"
+                        ],
+                        "type": "text/javascript"
+                    }
                 }
             ],
-            "description": "Manage backups for the agent configuration."
+            "request": {
+                "method": "PUT",
+                "header": [],
+                "body": {
+                    "mode": "raw",
+                    "raw": "{\n  \"system_context\": {\n    \"title\": \"ShopEasy Customer Support Agent\",\n    \"description\": \"You are the primary AI support agent for ShopEasy.\",\n    \"version\": \"2.1.0\",\n    \"tone\": \"Warm, professional, and efficient.\"\n  },\n  \"llm_config\": {\n    \"location\": \"local\",\n    \"provider\": \"google\",\n    \"model_name\": \"gemini-2.5-flash\",\n    \"rate_limit_delay_seconds\": 0,\n    \"temperature\": 0.1,\n    \"max_tokens\": 2048,\n    \"local_loading_params\": {\n      \"base_url\": \"http://localhost:11434/v1\",\n      \"gguf_file\": \"Qwen3.5-9B.Q4_K_S.gguf\",\n      \"context_window\": 16384,\n      \"gpu_layers\": 35,\n      \"quantization\": \"int4\"\n    },\n    \"system_prompt_template\": \"IDENTITY: {{title}}\\nROLE: {{description}}\"\n  }\n}",
+                    "options": {
+                        "raw": {
+                            "language": "json"
+                        }
+                    }
+                },
+                "url": {
+                    "raw": "{{base_url}}/api/v1/agent-config",
+                    "host": [
+                        "{{base_url}}"
+                    ],
+                    "path": [
+                        "api",
+                        "v1",
+                        "agent-config"
+                    ]
+                }
+            },
+            "response": []
+        },
+        {
+            "name": "Get Configuration Section",
+            "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                    "raw": "{{base_url}}/api/v1/agent-config/sections/llm_config",
+                    "host": [
+                        "{{base_url}}"
+                    ],
+                    "path": [
+                        "api",
+                        "v1",
+                        "agent-config",
+                        "sections",
+                        "llm_config"
+                    ]
+                }
+            },
+            "response": []
+        },
+        {
+            "name": "Update Configuration Section (Partial/Deep)",
+            "event": [
+                {
+                    "listen": "test",
+                    "script": {
+                        "exec": [
+                            "pm.test(\"Section updated successfully\", () => { pm.response.to.have.status(200); });"
+                        ],
+                        "type": "text/javascript"
+                    }
+                }
+            ],
+            "request": {
+                "method": "PATCH",
+                "header": [],
+                "body": {
+                    "mode": "raw",
+                    "raw": "{\n    \"local_loading_params\": {\n        \"gpu_layers\": 40\n    }\n}",
+                    "options": {
+                        "raw": {
+                            "language": "json"
+                        }
+                    }
+                },
+                "url": {
+                    "raw": "{{base_url}}/api/v1/agent-config/sections/llm_config",
+                    "host": [
+                        "{{base_url}}"
+                    ],
+                    "path": [
+                        "api",
+                        "v1",
+                        "agent-config",
+                        "sections",
+                        "llm_config"
+                    ]
+                }
+            },
+            "response": []
+        },
+        {
+            "name": "List All Backups",
+            "event": [
+                {
+                    "listen": "test",
+                    "script": {
+                        "exec": [
+                            "pm.test(\"List backups successful\", () => { pm.response.to.have.status(200); });",
+                            "const jsonData = pm.response.json();",
+                            "if (jsonData.backups && jsonData.backups.length > 0) {",
+                            "   pm.environment.set(\"agent_config_backup_filename\", jsonData.backups[0].filename);",
+                            "   console.log('✅ Latest backup filename saved:', jsonData.backups[0].filename);",
+                            "}"
+                        ],
+                        "type": "text/javascript"
+                    }
+                }
+            ],
+            "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                    "raw": "{{base_url}}/api/v1/agent-config/backups",
+                    "host": [
+                        "{{base_url}}"
+                    ],
+                    "path": [
+                        "api",
+                        "v1",
+                        "agent-config",
+                        "backups"
+                    ]
+                }
+            },
+            "response": []
+        },
+        {
+            "name": "Delete All Backups",
+            "event": [
+                {
+                    "listen": "test",
+                    "script": {
+                        "exec": [
+                            "pm.test(\"Delete all successful\", () => { pm.response.to.have.status(200); });",
+                            "console.log('✅ All backups deleted. Count:', pm.response.json().deleted_count);"
+                        ],
+                        "type": "text/javascript"
+                    }
+                }
+            ],
+            "request": {
+                "method": "DELETE",
+                "header": [],
+                "url": {
+                    "raw": "{{base_url}}/api/v1/agent-config/backups",
+                    "host": [
+                        "{{base_url}}"
+                    ],
+                    "path": [
+                        "api",
+                        "v1",
+                        "agent-config",
+                        "backups"
+                    ]
+                }
+            },
+            "response": []
+        },
+        {
+            "name": "Get Backup Content",
+            "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                    "raw": "{{base_url}}/api/v1/agent-config/backups/{{agent_config_backup_filename}}",
+                    "host": [
+                        "{{base_url}}"
+                    ],
+                    "path": [
+                        "api",
+                        "v1",
+                        "agent-config",
+                        "backups",
+                        "{{agent_config_backup_filename}}"
+                    ]
+                }
+            },
+            "response": []
+        },
+        {
+            "name": "Delete Single Backup",
+            "event": [
+                {
+                    "listen": "test",
+                    "script": {
+                        "exec": [
+                            "pm.test(\"Delete successful\", () => { pm.response.to.have.status(200); });",
+                            "console.log(\"✅ Backup deleted:\", pm.response.json().filename);"
+                        ],
+                        "type": "text/javascript"
+                    }
+                }
+            ],
+            "request": {
+                "method": "DELETE",
+                "header": [],
+                "url": {
+                    "raw": "{{base_url}}/api/v1/agent-config/backups/{{agent_config_backup_filename}}",
+                    "host": [
+                        "{{base_url}}"
+                    ],
+                    "path": [
+                        "api",
+                        "v1",
+                        "agent-config",
+                        "backups",
+                        "{{agent_config_backup_filename}}"
+                    ]
+                }
+            },
+            "response": []
+        },
+        {
+            "name": "Restore From Backup",
+            "event": [
+                {
+                    "listen": "test",
+                    "script": {
+                        "exec": [
+                            "pm.test(\"Restore successful\", () => { pm.response.to.have.status(200); });",
+                            "console.log(\"✅ Config restored from:\", pm.response.json().restored_from);"
+                        ],
+                        "type": "text/javascript"
+                    }
+                }
+            ],
+            "request": {
+                "method": "POST",
+                "header": [],
+                "url": {
+                    "raw": "{{base_url}}/api/v1/agent-config/backups/{{agent_config_backup_filename}}/restore",
+                    "host": [
+                        "{{base_url}}"
+                    ],
+                    "path": [
+                        "api",
+                        "v1",
+                        "agent-config",
+                        "backups",
+                        "{{agent_config_backup_filename}}",
+                        "restore"
+                    ]
+                }
+            },
+            "response": []
         }
     ],
     "auth": {
@@ -3844,7 +3795,7 @@
             }
         ]
     },
-    "description": "Endpoints for managing the AI Agent's core configuration file (`agent_config.json`). All endpoints require Admin privileges."
+    "description": "API endpoints for managing the AI Agent's core configuration, matching the Swagger documentation."
 }
 	],
 	"variable": [
