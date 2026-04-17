@@ -101,9 +101,26 @@ class ApiRequestDefaultsUpdate(BaseConfigModel):
     headers: Optional[Dict[str, str]] = None
     on_error: Optional[str] = None
 
+# ✅ START: ADDED/UPDATED CODE
+class RpcRequestDefaultsUpdate(BaseConfigModel):
+    protocol: Optional[Literal["grpc"]] = None
+    on_error: Optional[str] = None
+
+class VectorQueryDefaultsUpdate(BaseConfigModel):
+    connector: Optional[str] = None
+    connection_string: Optional[str] = None
+    embedding_config: Optional[EmbeddingConfig] = None
+    on_error: Optional[str] = None
+
+class InternalDefaultsUpdate(BaseConfigModel):
+    on_error: Optional[str] = None
+
 class GlobalDefaultsUpdate(BaseConfigModel):
     api_request: Optional[ApiRequestDefaultsUpdate] = None
-    # Add other defaults if they become updatable in the future
+    rpc_request: Optional[RpcRequestDefaultsUpdate] = None
+    vector_query: Optional[VectorQueryDefaultsUpdate] = None
+    internal: Optional[InternalDefaultsUpdate] = None
+# ✅ END: ADDED/UPDATED CODE
 
 class LLMLocalLoadingParamsUpdate(BaseConfigModel):
     base_url: Optional[HttpUrl] = None
