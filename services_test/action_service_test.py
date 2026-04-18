@@ -1,6 +1,7 @@
 import pytest
 import json
 from pathlib import Path
+from datetime import datetime, timezone
 from unittest.mock import patch
 
 # استيراد النماذج والاستثناءات الخاصة بك بناءً على مسارات مشروعك
@@ -259,22 +260,32 @@ async def test_backup_created_on_save(action_service, valid_api_action_data, moc
 @pytest.mark.asyncio
 async def test_restore_backup(action_service, valid_api_action_data, mock_settings):
     """اختبار استرجاع نسخة احتياطية بنجاح"""
-    # 1. إنشاء فعل
-    action_id, _ = await action_service.create_action(valid_api_action_data)
-    
-    # 2. أخذ اسم أحدث نسخة احتياطية (تم إنشاؤها للتو)
-    backups = await action_service.get_all_backups()
-    latest_backup = backups[0]["filename"]
-    
-    # 3. حذف الفعل من النظام
-    await action_service.delete_action(action_id)
-    with pytest.raises(ActionNotFoundException):
-        await action_service.get_action_by_id(action_id)
-        
-    # 4. استرجاع النسخة الاحتياطية
-    result = await action_service.restore_backup(latest_backup)
-    assert result["message"] == "Backup restored successfully"
-    
-    # 5. التحقق من عودة الفعل المحذوف
-    restored_action = await action_service.get_action_by_id(action_id)
-    assert restored_action.name == valid_api_action_data.name
+
+    with patch("services.action_service.datetime") as mock_datetime:
+        # Provide unique timestamps for each call
+        mock_datetime.now.side_effect = [datetime(2026, 4, 1, 10, 0, i) for i in range(20)]
+        mock_datetime.timezone = timezone
+
+        # 1. Create initial action
+        action_id, _ = await action_service.create_action(valid_api_action_data)
+
+        # 2. Perform another operation to create a backup that CONTAINS the action
+        # Because _save_data backups current file BEFORE writing new data
+        await action_service.toggle_action_status(action_id)
+
+        backups = await action_service.get_all_backups()
+        # The latest backup (from the second operation) should contain the action
+        latest_backup = backups[0]["filename"]
+
+        # 3. Delete the action from system
+        await action_service.delete_action(action_id)
+        with pytest.raises(ActionNotFoundException):
+            await action_service.get_action_by_id(action_id)
+
+        # 4. Restore the backup
+        result = await action_service.restore_backup(latest_backup)
+        assert result["message"] == "Backup restored successfully"
+
+        # 5. Verify the action is back
+        restored_action = await action_service.get_action_by_id(action_id)
+        assert restored_action.name == valid_api_action_data.name
