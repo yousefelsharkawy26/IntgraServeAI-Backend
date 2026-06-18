@@ -380,7 +380,8 @@ class ActionService:
             if not value_type:
                 raise MissingFieldException("type", f"parameters.{param_name}")
             
-            if value_type not in ["string", "integer"]:
+            from utils.schemas.action_schemas import InvalidParamValueTypeException
+            if value_type not in InvalidParamValueTypeException.SUPPORTED_VALUE_TYPES:
                 raise InvalidParamValueTypeException(value_type, param_name)
             
             # Check required field
