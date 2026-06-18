@@ -1,4 +1,5 @@
 # models/chat.py
+
 from sqlalchemy import Column, String, Boolean, DateTime, Text, Integer, Numeric, ForeignKey, Enum as SQLEnum
 from sqlalchemy.orm import relationship
 from sqlalchemy.dialects.postgresql import UUID, JSONB
@@ -8,14 +9,12 @@ import enum
 
 
 class ResponseType(str, enum.Enum):
-    """Response Type Enum"""
     HELPFUL = "helpful"
     NOT_HELPFUL = "not_helpful"
     NEUTRAL = "neutral"
 
 
 class ChatConversation(BaseModel):
-    """Chat Conversations table"""
     __tablename__ = 'chat_conversations'
     
     external_customer_id = Column(String(255), nullable=True, index=True)
@@ -25,11 +24,11 @@ class ChatConversation(BaseModel):
     is_active = Column(Boolean, default=True, nullable=False, index=True)
     started_at = Column(DateTime(timezone=True), nullable=False, index=True)
     ended_at = Column(DateTime(timezone=True), nullable=True)
+    pending_state = Column(JSONB, nullable=True)  # Stores serialized messages + pause metadata
+    ai_context = Column(JSONB, nullable=True)     # Optional metadata for the AI session
     
-    # Relationships
     messages = relationship('ChatMessage', back_populates='conversation', cascade='all, delete-orphan')
     rating = relationship('AgentRating', back_populates='conversation', uselist=False, cascade='all, delete-orphan')
-    # ✅ أضف relationship للـ ActionExecutionLog
     action_logs = relationship('ActionExecutionLog', back_populates='chat_conversation', cascade='all, delete-orphan')
     
     def __repr__(self):
@@ -37,7 +36,6 @@ class ChatConversation(BaseModel):
 
 
 class ChatMessage(BaseModel):
-    """Chat Messages table"""
     __tablename__ = 'chat_messages'
     
     chat_conversation_id = Column(UUID(as_uuid=True), ForeignKey('chat_conversations.id', ondelete='CASCADE'), nullable=False, index=True)
@@ -47,7 +45,6 @@ class ChatMessage(BaseModel):
     intent_detected = Column(String(255), nullable=True)
     entities_extracted = Column(JSONB, nullable=True)
     
-    # Relationships
     conversation = relationship('ChatConversation', back_populates='messages')
     
     def __repr__(self):
@@ -55,7 +52,6 @@ class ChatMessage(BaseModel):
 
 
 class AgentRating(BaseModel):
-    """Agent Ratings table"""
     __tablename__ = 'agent_ratings'
     
     chat_conversation_id = Column(UUID(as_uuid=True), ForeignKey('chat_conversations.id', ondelete='CASCADE'), unique=True, nullable=False, index=True)
@@ -64,7 +60,6 @@ class AgentRating(BaseModel):
     feedback = Column(Text, nullable=True)
     response_type = Column(SQLEnum(ResponseType), nullable=True)
     
-    # Relationships
     conversation = relationship('ChatConversation', back_populates='rating')
     
     def __repr__(self):
