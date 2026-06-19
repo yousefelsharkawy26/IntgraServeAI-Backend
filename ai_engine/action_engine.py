@@ -27,7 +27,8 @@ logger = logging.getLogger("ActionEngine")
 
 class ActionEngine:
     def __init__(self, agent_config_path: str, actions_config_path: str = None, actions_list: list = None):
-        if not actions_config_path and not actions_list:
+        # BUGFIX: use `is None` so empty list [] is accepted
+        if actions_config_path is None and actions_list is None:
             raise ValueError("Either actions_config_path or actions_list must be provided")
 
         self.agent_config: AgentConfiguration = self._load_agent_config(agent_config_path)
@@ -38,6 +39,15 @@ class ActionEngine:
             self.actions: List[ActionDefinition] = self._parse_actions_list(actions_list)
         else:
             self.actions: List[ActionDefinition] = self._load_actions_config(actions_config_path)
+
+        # P0.8: Validate action name uniqueness
+        seen_names = set()
+        for action in self.actions:
+            if action.name in seen_names:
+                raise InvalidActionStructure(
+                    f"Duplicate action name '{action.name}' detected. Action names must be unique."
+                )
+            seen_names.add(action.name)
 
         self._grpc_module_cache = {} 
         self._apply_global_defaults()
@@ -154,7 +164,9 @@ class ActionEngine:
 
                 if not config.protocol:
                     config.protocol = api_def.protocol
-                if config.timeout == 5000:
+                
+                # P0.7: Use sentinel None instead of magic number 5000
+                if config.timeout is None:
                     config.timeout = api_def.timeout
 
                 if config.url and config.url.startswith("/") and api_def.base_url:
@@ -192,7 +204,7 @@ class ActionEngine:
         if not action.response_config:
             from .config import ResponseConfig
             action.response_config = ResponseConfig(mode="json", on_error=fallback_error)
-        elif not action.response_config.on_error:
+        elif action.response_config.on_error is None:
             action.response_config.on_error = fallback_error
 
     def _create_args_schema(self, parameters: Dict[str, Any]) -> Type[BaseModel]:
@@ -261,6 +273,9 @@ class ActionEngine:
 
         logger.info(f"Executing HTTP {config.method} {url}")
 
+        # P0.7: Safe timeout fallback if somehow not set
+        timeout_seconds = (config.timeout or 10000) / 1000
+
         try:
             resp = requests.request(
                 method=config.method,
@@ -268,7 +283,7 @@ class ActionEngine:
                 headers=config.headers,
                 params=query_params,
                 json=body_params if body_params else None,
-                timeout=config.timeout / 1000,
+                timeout=timeout_seconds,
             )
             try:
                 data = resp.json()
@@ -359,6 +374,9 @@ class ActionEngine:
 
         logger.info(f"Executing gRPC {config.host}/{config.service}/{config.method}")
 
+        # P0.7: Safe timeout fallback if somehow not set
+        timeout_seconds = (config.timeout or 10000) / 1000
+
         channel = grpc.insecure_channel(config.host)
         stub_class = getattr(pb2_grpc, stub_class_name)
         stub = stub_class(channel)
@@ -368,7 +386,7 @@ class ActionEngine:
             response_obj = rpc_method(
                 request_obj, 
                 metadata=metadata, 
-                timeout=config.timeout / 1000
+                timeout=timeout_seconds
             )
         except grpc.RpcError as e:
             logger.error(f"gRPC Error: Status {e.code()} - {e.details()}")
@@ -458,7 +476,7 @@ class ActionEngine:
     def get_system_prompt(self) -> str:
         ctx = self.agent_config.system_context
         if self.agent_config.llm_config:
-            tmpl = self.agent_config.llm_config.get("system_prompt_template", "")
+            tmpl = getattr(self.agent_config.llm_config, "system_prompt_template", "")
             prompt = (
                 tmpl.replace("{{title}}", ctx.title)
                 .replace("{{description}}", ctx.description)

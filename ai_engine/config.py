@@ -2,20 +2,23 @@
 
 import os
 import re
-from typing import Any, Dict, List, Optional, Literal
+from typing import Any, Dict, List, Optional, Literal, Union
 from pydantic import BaseModel, Field, field_validator, model_validator, ConfigDict
 from .exceptions import *
 
 def inject_env(text: Any) -> Any:
-    """Recursively inject environment variables into strings."""
+    """Recursively inject environment variables into strings.
+    
+    Raises:
+        MissingField: If a referenced environment variable is not set.
+    """
     if isinstance(text, str):
         pattern = r"\{\{env\.(.*?)\}\}"
         matches = re.findall(pattern, text)
         for var in matches:
             val = os.getenv(var)
-            if not val:
-                print(f"WARNING: Env var {var} not found, using empty string.")
-                val = "" 
+            if val is None:
+                raise MissingField(f"Environment variable '{var}' is required but not set.")
             text = text.replace(f"{{{{env.{var}}}}}", val)
         return text
     elif isinstance(text, dict):
@@ -38,6 +41,42 @@ class ActionParameter(BaseModel):
         if v not in valid_types:
             raise InvalidParamValueType(f"Type {v} not supported")
         return v
+    
+    @model_validator(mode='after')
+    def validate_default_consistency(self):
+        """Ensure default value is compatible with the declared type and enum."""
+        if self.default is not None:
+            type_mapping = {
+                "string": (str,),
+                "integer": (int,),
+                "number": (int, float),
+                "boolean": (bool,),
+                "array": (list,),
+                "object": (dict,),
+            }
+            expected_types = type_mapping.get(self.type)
+            
+            # bool is a subclass of int in Python; exclude it from integer/number checks
+            if self.type == "integer":
+                if isinstance(self.default, bool) or not isinstance(self.default, int):
+                    raise InvalidParamValueType(
+                        f"Default value {self.default!r} is not compatible with type 'integer'"
+                    )
+            elif self.type == "number":
+                if isinstance(self.default, bool) or not isinstance(self.default, (int, float)):
+                    raise InvalidParamValueType(
+                        f"Default value {self.default!r} is not compatible with type 'number'"
+                    )
+            elif expected_types and not isinstance(self.default, expected_types):
+                raise InvalidParamValueType(
+                    f"Default value {self.default!r} is not compatible with type '{self.type}'"
+                )
+            
+            if self.enum is not None and self.default not in self.enum:
+                raise InvalidParamValueType(
+                    f"Default value {self.default!r} is not in enum {self.enum}"
+                )
+        return self
     
 class LocalLoadingParams(BaseModel):
     base_url: Optional[str] = None
@@ -83,7 +122,7 @@ class ExecutionConfig(BaseModel):
     method: str = "GET"
     url: Optional[str] = None
     headers: Optional[Dict[str, str]] = {}
-    timeout: int = 5000
+    timeout: Optional[int] = None
     connector: Optional[str] = None
     connection_string: Optional[str] = None
     collection_name: Optional[str] = None
@@ -93,6 +132,16 @@ class ExecutionConfig(BaseModel):
     host: Optional[str] = None
     service: Optional[str] = None
     proto_file: Optional[str] = None
+    
+    @field_validator('method')
+    def validate_method(cls, v):
+        allowed = {'GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'}
+        normalized = v.upper()
+        if normalized not in allowed:
+            raise InvalidActionStructure(
+                f"HTTP method '{v}' is not supported. Use one of: {', '.join(sorted(allowed))}"
+            )
+        return normalized
     
     @model_validator(mode='before')
     def inject_secrets(cls, values):
@@ -123,8 +172,13 @@ class ActionDefinition(BaseModel):
     @model_validator(mode='before')
     @classmethod
     def handle_aliases_and_validation(cls, values):
-        if 'title' in values and 'name' not in values:
-            values['name'] = values.pop('title')
+        # Always pop 'title' if present to avoid extra='forbid' violations
+        if 'title' in values:
+            if 'name' not in values:
+                values['name'] = values.pop('title')
+            else:
+                values.pop('title', None)
+        
         required = ['name', 'description', 'type']
         for r in required:
             if r not in values:
@@ -139,6 +193,8 @@ class ActionDefinition(BaseModel):
             if not self.execution_config.url:
                 raise MissingField("url is required for api_request")
         if self.type == "rpc_request":
+            if not self.execution_config:
+                raise MissingField("execution_config required for rpc_request")
             if not self.execution_config.host:
                 raise InvalidActionStructure("RPC actions require 'host'")
         return self

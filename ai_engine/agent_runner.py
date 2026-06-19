@@ -7,7 +7,7 @@ from langchain_core.messages import BaseMessage, SystemMessage, ToolMessage, AIM
 
 from .action_engine import ActionEngine
 from .providers import ModelFactory
-from .exceptions import ActionRequiresConfirmationError
+from .exceptions import ActionRequiresConfirmationError, ParsingException
 
 logger = logging.getLogger("AgentRunner")
 
@@ -18,6 +18,15 @@ class AgentRunner:
         
         # Build tools for all active actions (internal included, for LLM schema visibility)
         self.tools = self.engine.build_tools()
+        
+        # P0.4: Explicit null-guard for llm_config with a clear, actionable error
+        if not self.engine.agent_config.llm_config:
+            raise ParsingException(
+                "llm_config is required in agent configuration but was not provided. "
+                "Please define 'llm_config' in your agent_config.json with at least "
+                "'provider' and 'model_name' fields."
+            )
+        
         self.llm = ModelFactory.get_llm(self.engine.agent_config.llm_config)
         
         if self.tools:
@@ -47,9 +56,10 @@ class AgentRunner:
                 if chunk.content:
                     yield {"type": "token", "content": chunk.content}
             
-            messages.append(ai_message_chunk)
+            if ai_message_chunk is not None:
+                messages.append(ai_message_chunk)
             
-            if not ai_message_chunk.tool_calls:
+            if not ai_message_chunk or not getattr(ai_message_chunk, "tool_calls", []):
                 yield {"type": "done"}
                 break
                 
