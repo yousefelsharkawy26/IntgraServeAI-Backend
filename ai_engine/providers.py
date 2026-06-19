@@ -2,27 +2,19 @@
 
 import logging
 import os
-import time
 from abc import ABC, abstractmethod
 
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.embeddings import Embeddings
-from langchain_core.callbacks import BaseCallbackHandler
 
 from .config import LLMConfig, EmbeddingConfig
 
-class RateLimitCallback(BaseCallbackHandler):
-    def __init__(self, delay_seconds: int):
-        self.delay_seconds = delay_seconds
+logger = logging.getLogger(__name__)
 
-    def on_llm_end(self, response, **kwargs):
-        if self.delay_seconds > 0:
-            logging.info(f"Rate Limiter: Sleeping for {self.delay_seconds} seconds to respect API quotas...")
-            time.sleep(self.delay_seconds)
 
 class BaseProvider(ABC):
     @abstractmethod
-    def get_llm(self, config: LLMConfig, callbacks: list[BaseCallbackHandler] = []) -> BaseChatModel:
+    def get_llm(self, config: LLMConfig) -> BaseChatModel:
         pass
 
     @abstractmethod
@@ -30,14 +22,13 @@ class BaseProvider(ABC):
         pass
 
 class OpenAIProvider(BaseProvider):
-    def get_llm(self, config: LLMConfig, callbacks: list[BaseCallbackHandler] = []) -> BaseChatModel:
+    def get_llm(self, config: LLMConfig) -> BaseChatModel:
         from langchain_openai import ChatOpenAI
         return ChatOpenAI(
             model=config.model_name,
             temperature=config.temperature,
             max_tokens=config.max_tokens,
             api_key=config.api_key,
-            callbacks=callbacks
         )
 
     def get_embeddings(self, config: EmbeddingConfig) -> Embeddings:
@@ -49,14 +40,13 @@ class OpenAIProvider(BaseProvider):
         )
 
 class GroqProvider(BaseProvider):
-    def get_llm(self, config: LLMConfig, callbacks: list[BaseCallbackHandler] = []) -> BaseChatModel:
+    def get_llm(self, config: LLMConfig) -> BaseChatModel:
         from langchain_groq import ChatGroq
         return ChatGroq(
             model=config.model_name,
             temperature=config.temperature,
             max_tokens=config.max_tokens,
             api_key=config.api_key,
-            callbacks=callbacks
         )
 
     def get_embeddings(self, config: EmbeddingConfig) -> Embeddings:
@@ -68,14 +58,13 @@ class OllamaProvider(BaseProvider):
             return config.local_loading_params.base_url
         return "http://localhost:11434"
 
-    def get_llm(self, config: LLMConfig, callbacks: list[BaseCallbackHandler] = []) -> BaseChatModel:
+    def get_llm(self, config: LLMConfig) -> BaseChatModel:
         from langchain_ollama import ChatOllama
         base_url = self._get_base_url(config)
         return ChatOllama(
             base_url=base_url,
             model=config.model_name,
             temperature=config.temperature,
-            callbacks=callbacks
         )
 
     def get_embeddings(self, config: EmbeddingConfig) -> Embeddings:
@@ -87,14 +76,13 @@ class OllamaProvider(BaseProvider):
         )
 
 class GoogleProvider(BaseProvider):
-    def get_llm(self, config: LLMConfig, callbacks: list[BaseCallbackHandler] = []) -> BaseChatModel:
+    def get_llm(self, config: LLMConfig) -> BaseChatModel:
         from langchain_google_genai import ChatGoogleGenerativeAI
         return ChatGoogleGenerativeAI(
             model=config.model_name,
             temperature=config.temperature,
             max_tokens=config.max_tokens,
             api_key=config.api_key,
-            callbacks=callbacks
         )
 
     def get_embeddings(self, config: EmbeddingConfig) -> Embeddings:
@@ -105,7 +93,7 @@ class GoogleProvider(BaseProvider):
         )
 
 class HuggingFaceProvider(BaseProvider):
-    def get_llm(self, config: LLMConfig, callbacks: list[BaseCallbackHandler] = []) -> BaseChatModel:
+    def get_llm(self, config: LLMConfig) -> BaseChatModel:
         if config.location == "local":
             from langchain_community.chat_models import ChatLlamaCpp
             from huggingface_hub import hf_hub_download
@@ -128,7 +116,6 @@ class HuggingFaceProvider(BaseProvider):
                 temperature=config.temperature,
                 max_new_tokens=config.max_tokens,
                 huggingfacehub_api_token=config.api_key,
-                callbacks=callbacks
             )
             return ChatHuggingFace(llm=llm_backend)
 
@@ -156,20 +143,25 @@ class ModelFactory:
     def get_llm(cls, config: LLMConfig) -> BaseChatModel:
         provider_name = config.provider.lower()
         if provider_name not in cls._providers:
-            raise ValueError(f"Unsupported LLM Provider '{provider_name}'. Supported: {list(cls._providers.keys())}")
-            
+            raise ValueError(
+                f"Unsupported LLM Provider '{provider_name}'. "
+                f"Supported: {list(cls._providers.keys())}"
+            )
+        
         provider_instance = cls._providers[provider_name]()
-        callbacks = []
-        if config.rate_limit_delay_seconds > 0:
-            callbacks.append(RateLimitCallback(config.rate_limit_delay_seconds))
-            
-        return provider_instance.get_llm(config, callbacks=callbacks)
+        # P2.4: Rate limiting is now handled asynchronously in AgentRunner.
+        # The blocking RateLimitCallback has been removed to prevent event-loop
+        # starvation during streaming.
+        return provider_instance.get_llm(config)
 
     @classmethod
     def get_embeddings(cls, config: EmbeddingConfig) -> Embeddings:
         provider_name = config.provider.lower()
         if provider_name not in cls._providers:
-            raise ValueError(f"Unsupported Embedding Provider '{provider_name}'. Supported: {list(cls._providers.keys())}")
-            
+            raise ValueError(
+                f"Unsupported Embedding Provider '{provider_name}'. "
+                f"Supported: {list(cls._providers.keys())}"
+            )
+        
         provider_instance = cls._providers[provider_name]()
         return provider_instance.get_embeddings(config)
