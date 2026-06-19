@@ -14,10 +14,14 @@ from langchain_core.tools import StructuredTool
 
 from .config import AgentConfiguration, ActionDefinition, ResponseConfig
 from .vector_search import generate_embedding, get_vector_driver
-from .exceptions import *
+from .exceptions import (
+    ActionEngineException, MissingField, InvalidActionStructure, ProtoNotFound, MethodNotFound, ServiceNotFound,
+    PathParamNotFound, BodyParamOnGetRequest, ActionRequiresConfirmationError,
+    ParsingException, VectorSearchError, ExecutionException, EmbeddingGenerationError,
+    UnsupportedDatabaseDriver, ActionNotFound, ActionNotActive, CorrelationIdAdapter,
+)
 
-# P1.1: Use module-level logger only; never call logging.basicConfig()
-logger = logging.getLogger(__name__)
+logger = CorrelationIdAdapter(logging.getLogger(__name__))
 
 
 class ActionEngine:
@@ -26,7 +30,7 @@ class ActionEngine:
             raise ValueError("Either actions_config_path or actions_list must be provided")
 
         self.agent_config: AgentConfiguration = self._load_agent_config(agent_config_path)
-
+        
         if actions_list is not None:
             if not isinstance(actions_list, list):
                 raise InvalidActionStructure("Actions list must be a list of objects")
@@ -34,6 +38,7 @@ class ActionEngine:
         else:
             self.actions: List[ActionDefinition] = self._load_actions_config(actions_config_path)
 
+        # P0.8: Validate action name uniqueness
         seen_names = set()
         for action in self.actions:
             if action.name in seen_names:
@@ -55,7 +60,7 @@ class ActionEngine:
             error_type = error.get("type", "")
             loc = error.get("loc", [])
             field_path = ".".join(str(x) for x in loc) if loc else "unknown"
-
+            
             if error_type == "missing":
                 raise MissingField(f"Missing required field: {field_path}")
             elif error_type in ("value_error", "literal_error"):
@@ -113,20 +118,20 @@ class ActionEngine:
             except ActionEngineException as e:
                 raise e
         return actions
-
+    
     def _compile_and_load_proto(self, proto_path: str):
         from grpc_tools import protoc
-
+        
         abs_proto_path = os.path.abspath(proto_path)
-
+        
         if not os.path.exists(abs_proto_path):
             raise ProtoNotFound(f"Proto file not found: {abs_proto_path}")
 
         proto_dir = os.path.dirname(abs_proto_path)
         proto_file = os.path.basename(abs_proto_path)
-
+        
         out_dir = tempfile.mkdtemp()
-
+        
         protoc_args =[
             'grpc_tools.protoc',
             f'-I{proto_dir}',
@@ -134,7 +139,7 @@ class ActionEngine:
             f'--grpc_python_out={out_dir}',
             abs_proto_path
         ]
-
+        
         if protoc.main(protoc_args) != 0:
             raise ExecutionException(f"Failed to compile proto file: {proto_file}")
 
@@ -147,6 +152,7 @@ class ActionEngine:
             pb2_grpc = importlib.import_module(pb2_grpc_name)
             return pb2, pb2_grpc
         except Exception:
+            # P3.10: Clean up partially imported modules from sys.modules
             sys.modules.pop(pb2_name, None)
             sys.modules.pop(pb2_grpc_name, None)
             raise
@@ -272,19 +278,29 @@ class ActionEngine:
         )
 
     def _gate_confirmation(self, action: ActionDefinition, kwargs: dict) -> None:
-        """Unified confirmation gate.
-
-        Raises:
-            ActionRequiresConfirmationError: If the action requires confirmation and
-                has not been pre-approved.
-        """
         if not action.requires_confirmation:
             return
-
+        
         logger.warning(f"ACTION PAUSED: {action.name} requires user confirmation. Params: {kwargs}")
         raise ActionRequiresConfirmationError(
             f"PAUSE_FOR_HUMAN: {action.name}", action.name, kwargs
         )
+
+    # P5.3: Sanitize path parameter values to prevent path traversal and injection
+    def _sanitize_path_param(self, name: str, value: Any) -> str:
+        """Sanitize a path parameter value to prevent path traversal and injection.
+        
+        Raises:
+            ExecutionException: If the value contains dangerous characters.
+        """
+        str_value = str(value)
+        dangerous_chars = ['..', '\x00', '?', '#', '\\']
+        for char in dangerous_chars:
+            if char in str_value:
+                raise ExecutionException(
+                    f"Path parameter '{name}' contains invalid characters: {value!r}"
+                )
+        return str_value
 
     def _execute_api_request(self, action: ActionDefinition, **kwargs):
         config = action.execution_config
@@ -296,13 +312,13 @@ class ActionEngine:
         for k, v in path_params.items():
             if f"{{{k}}}" not in url:
                 raise PathParamNotFound(f"Path parameter {{{k}}} missing in URL {url}")
-            url = url.replace(f"{{{k}}}", str(v))
+            # P5.3: Sanitize path parameter before substitution
+            sanitized = self._sanitize_path_param(k, v)
+            url = url.replace(f"{{{k}}}", sanitized)
 
-        # P1.10: Verify no path placeholders remain unresolved
         if "{{" in url and "}}" in url:
             raise PathParamNotFound(f"URL contains unresolved path parameters: {url}")
 
-        # P1.11: Filter out None values from query and body params
         query_params = {
             k: v for k, v in kwargs.items()
             if action.parameters[k].param_type == "query" and v is not None
@@ -318,15 +334,12 @@ class ActionEngine:
 
         logger.info(f"Executing HTTP {config.method} {url}")
 
-        # P0.7: Safe timeout fallback
         timeout_seconds = (config.timeout or 10000) / 1000
 
-        # P1.5: Wire HTTP auth field into requests.request
         request_auth = None
         if config.auth:
             if "username" in config.auth and "password" in config.auth:
                 request_auth = (config.auth["username"], config.auth["password"])
-            # Future: support bearer token, digest auth, etc.
 
         try:
             resp = requests.request(
@@ -364,20 +377,20 @@ class ActionEngine:
 
     def _execute_vector(self, action: ActionDefinition, **kwargs):
         config = action.execution_config
-
+        
         topic_key = next((k for k, v in action.parameters.items() if v.param_type == "vector"), None)
         if not topic_key or topic_key not in kwargs:
             raise VectorSearchError("Vector query requires a parameter with param_type='vector'.")
-
+            
         topic_text = kwargs[topic_key]
-
+        
         logger.info(f"Executing Vector Search for topic: '{topic_text}'")
 
         try:
             query_vector = generate_embedding(topic_text, config.embedding_config)
             driver = get_vector_driver(config.connector)
             search_results = driver.search(query_vector, config)
-
+            
         except UnsupportedDatabaseDriver as e:
             logger.error(f"Configuration Error: {e}")
             raise
@@ -395,18 +408,18 @@ class ActionEngine:
     def _execute_rpc(self, action: ActionDefinition, **kwargs):
         import grpc
         from google.protobuf.json_format import MessageToDict
-
+        
         config = action.execution_config
-
+        
         if config.proto_file not in self._grpc_module_cache:
             self._grpc_module_cache[config.proto_file] = self._compile_and_load_proto(config.proto_file)
-
+            
         pb2, pb2_grpc = self._grpc_module_cache[config.proto_file]
 
         stub_class_name = f"{config.service}Stub"
         if not hasattr(pb2_grpc, stub_class_name):
             raise ServiceNotFound(f"Service '{config.service}' not found in {config.proto_file}")
-
+            
         service_descriptor = pb2.DESCRIPTOR.services_by_name.get(config.service)
         if not service_descriptor:
             raise ServiceNotFound(f"Service Descriptor '{config.service}' not found.")
@@ -414,14 +427,14 @@ class ActionEngine:
         method_descriptor = service_descriptor.methods_by_name.get(config.method)
         if not method_descriptor:
             raise MethodNotFound(f"Method '{config.method}' not found in service '{config.service}'")
-
+            
         request_class = self._resolve_proto_message_class(pb2, method_descriptor.input_type)
 
         message_params = {
             k: v for k, v in kwargs.items() 
             if action.parameters[k].param_type == "message_field"
         }
-
+        
         try:
             request_obj = request_class(**message_params)
         except Exception as e:
@@ -457,8 +470,27 @@ class ActionEngine:
                 channel.close()
 
         response_dict = MessageToDict(response_obj, preserving_proto_field_name=True)
-
+        
         return self._parse_response(response_dict, action.response_config)
+
+    def _resolve_proto_message_class(self, pb2_module, descriptor):
+        if descriptor.containing_type is None:
+            try:
+                return getattr(pb2_module, descriptor.name)
+            except AttributeError as e:
+                raise ServiceNotFound(
+                    f"Message type '{descriptor.name}' not found in protobuf module. "
+                    f"Ensure the .proto file defines this message at the top level."
+                ) from e
+        
+        parent_class = self._resolve_proto_message_class(pb2_module, descriptor.containing_type)
+        try:
+            return getattr(parent_class, descriptor.name)
+        except AttributeError as e:
+            raise ServiceNotFound(
+                f"Nested message type '{descriptor.name}' not found in parent '{parent_class.__name__}'. "
+                f"Ensure the .proto file defines this nested message correctly."
+            ) from e
 
     def _parse_response(self, data: Any, config: ResponseConfig) -> str:
         if not config:
@@ -492,40 +524,6 @@ class ActionEngine:
             return result
 
         return str(data)
-    
-    def _resolve_proto_message_class(self, pb2_module, descriptor):
-        """Resolve a protobuf message class from its descriptor, handling nesting.
-        
-        For nested messages (e.g., Outer.Inner), traverses the containing_type chain
-        to find the correct Python class.
-        
-        Args:
-            pb2_module: The compiled protobuf Python module (_pb2).
-            descriptor: A protobuf Descriptor object for the message type.
-            
-        Returns:
-            The Python message class.
-            
-        Raises:
-            ServiceNotFound: If the message class cannot be resolved.
-        """
-        if descriptor.containing_type is None:
-            try:
-                return getattr(pb2_module, descriptor.name)
-            except AttributeError as e:
-                raise ServiceNotFound(
-                    f"Message type '{descriptor.name}' not found in protobuf module. "
-                    f"Ensure the .proto file defines this message at the top level."
-                ) from e
-        
-        parent_class = self._resolve_proto_message_class(pb2_module, descriptor.containing_type)
-        try:
-            return getattr(parent_class, descriptor.name)
-        except AttributeError as e:
-            raise ServiceNotFound(
-                f"Nested message type '{descriptor.name}' not found in parent '{parent_class.__name__}'. "
-                f"Ensure the .proto file defines this nested message correctly."
-            ) from e
 
     def build_tools(self) -> List[StructuredTool]:
         tools = []
@@ -574,6 +572,7 @@ class ActionEngine:
             return prompt
         return f"System: {ctx.title}. {ctx.description}"
 
+    # P5.4: Use ActionNotFound and ActionNotActive instead of generic ValueError
     def execute_action_directly(
         self,
         action_name: str,
@@ -582,10 +581,10 @@ class ActionEngine:
     ) -> str:
         act = next((a for a in self.actions if a.name == action_name), None)
         if not act:
-            raise ValueError(f"Action '{action_name}' not found.")
+            raise ActionNotFound(f"Action '{action_name}' not found.")
 
         if not act.active:
-            raise ValueError(f"Action '{action_name}' is not active.")
+            raise ActionNotActive(f"Action '{action_name}' is not active.")
 
         if act.parameters:
             ArgsSchema = self._create_args_schema(act.parameters)

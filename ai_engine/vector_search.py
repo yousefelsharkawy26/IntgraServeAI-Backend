@@ -8,10 +8,13 @@ from abc import ABC, abstractmethod
 from typing import List, Dict, Any
 
 from .config import ExecutionConfig, EmbeddingConfig
-from .exceptions import UnsupportedDatabaseDriver, EmbeddingGenerationError, VectorSearchError
+from .exceptions import (
+    UnsupportedDatabaseDriver, EmbeddingGenerationError, VectorSearchError,
+    CorrelationIdAdapter,
+)
 from .providers import ModelFactory
 
-logger = logging.getLogger(__name__)
+logger = CorrelationIdAdapter(logging.getLogger(__name__))
 
 
 def generate_embedding(text: str, config: EmbeddingConfig) -> List[float]:
@@ -31,7 +34,6 @@ class BaseVectorDriver(ABC):
 class PostgresVectorDriver(BaseVectorDriver):
     """Driver for PostgreSQL with the pgvector extension."""
     
-    # P3.3: Collection name validation regex (same as SQLite)
     _VALID_COLLECTION_RE = re.compile(r"^[a-zA-Z0-9_]+$")
     
     def search(self, query_vector: List[float], config: ExecutionConfig) -> List[Dict[str, Any]]:
@@ -42,14 +44,12 @@ class PostgresVectorDriver(BaseVectorDriver):
         except ImportError:
             raise VectorSearchError("Install 'psycopg2-binary' to use the postgres connector.")
 
-        # P3.3: Validate collection name before SQL construction
         if not config.collection_name or not self._VALID_COLLECTION_RE.match(config.collection_name):
             raise VectorSearchError(
                 f"Invalid collection name '{config.collection_name}'. "
                 f"Must match pattern: {self._VALID_COLLECTION_RE.pattern}"
             )
 
-        # P3.2: Pass auth as keyword arguments instead of string concatenation
         conn_kwargs = {}
         if config.auth:
             conn_kwargs.update(config.auth)
@@ -59,7 +59,6 @@ class PostgresVectorDriver(BaseVectorDriver):
                 with conn.cursor(cursor_factory=RealDictCursor) as cur:
                     vector_str = "[" + ",".join(map(str, query_vector)) + "]"
                     
-                    # P3.4: Guard max_results against None
                     limit = config.max_results if config.max_results is not None else 100
                     
                     query = sql.SQL("""
@@ -103,7 +102,6 @@ class SQLiteVectorDriver(BaseVectorDriver):
             conn = sqlite3.connect(config.connection_string)
             conn.row_factory = sqlite3.Row
             
-            # P3.1: Load SQLite vector extension explicitly
             if hasattr(conn, 'enable_load_extension'):
                 conn.enable_load_extension(True)
                 self._load_vector_extension(conn, config)
@@ -116,7 +114,6 @@ class SQLiteVectorDriver(BaseVectorDriver):
             
             vector_bytes = struct.pack(f"{len(query_vector)}f", *query_vector)
             
-            # P3.4: Guard max_results against None
             limit = config.max_results if config.max_results is not None else 100
             
             query = f"""
@@ -150,12 +147,10 @@ class SQLiteVectorDriver(BaseVectorDriver):
         Raises:
             VectorSearchError: If the extension cannot be loaded.
         """
-        # Determine extension name from driver_options or default to 'vec0'
         extension_name = "vec0"
         if config.driver_options and isinstance(config.driver_options, dict):
             extension_name = config.driver_options.get("extension_name", "vec0")
         
-        # Strategy 1: Try sqlite-vec Python package helper
         try:
             import sqlite_vec
             sqlite_vec.load(conn)
@@ -166,7 +161,6 @@ class SQLiteVectorDriver(BaseVectorDriver):
         except Exception as e:
             logger.warning(f"sqlite_vec.load() failed: {e}, trying load_extension()")
         
-        # Strategy 2: Try conn.load_extension() with the extension name
         try:
             conn.load_extension(extension_name)
             logger.info(f"Loaded SQLite vector extension '{extension_name}' via load_extension()")

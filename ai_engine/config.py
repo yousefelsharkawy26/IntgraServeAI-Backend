@@ -56,7 +56,6 @@ class ActionParameter(BaseModel):
             }
             expected_types = type_mapping.get(self.type)
             
-            # bool is a subclass of int in Python; exclude it from integer/number checks
             if self.type == "integer":
                 if isinstance(self.default, bool) or not isinstance(self.default, int):
                     raise InvalidParamValueType(
@@ -173,7 +172,6 @@ class ActionDefinition(BaseModel):
     @model_validator(mode='before')
     @classmethod
     def handle_aliases_and_validation(cls, values):
-        # Always pop 'title' if present to avoid extra='forbid' violations
         if 'title' in values:
             if 'name' not in values:
                 values['name'] = values.pop('title')
