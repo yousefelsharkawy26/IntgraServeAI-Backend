@@ -132,6 +132,7 @@ class ExecutionConfig(BaseModel):
     host: Optional[str] = None
     service: Optional[str] = None
     proto_file: Optional[str] = None
+    driver_options: Optional[Dict[str, Any]] = None
     
     @field_validator('method')
     def validate_method(cls, v):
@@ -214,6 +215,7 @@ class ApiRequestDefaults(BaseModel):
 
 class RpcRequestDefaults(BaseModel):
     protocol: str = "grpc"
+    headers: Dict[str, str] = {}
     on_error: str = "System Error"
 
 class VectorQueryDefaults(BaseModel):

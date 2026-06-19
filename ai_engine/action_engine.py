@@ -22,7 +22,6 @@ logger = logging.getLogger(__name__)
 
 class ActionEngine:
     def __init__(self, agent_config_path: str, actions_config_path: str = None, actions_list: list = None):
-        # BUGFIX: use `is None` so empty list [] is accepted
         if actions_config_path is None and actions_list is None:
             raise ValueError("Either actions_config_path or actions_list must be provided")
 
@@ -35,7 +34,6 @@ class ActionEngine:
         else:
             self.actions: List[ActionDefinition] = self._load_actions_config(actions_config_path)
 
-        # P0.8: Validate action name uniqueness
         seen_names = set()
         for action in self.actions:
             if action.name in seen_names:
@@ -47,7 +45,6 @@ class ActionEngine:
         self._grpc_module_cache = {} 
         self._apply_global_defaults()
 
-    # P1.14: Replace brittle string-matching with stable error-type inspection
     def _handle_validation_error(self, e: ValidationError, context_msg: str):
         for error in e.errors():
             ctx = error.get("ctx", {})
@@ -102,7 +99,6 @@ class ActionEngine:
         except Exception as e:
             raise ParsingException(f"Failed to load actions config: {e}")
 
-    # P1.15: Add TypeError guard for non-dict action items
     def _parse_actions_list(self, actions_list: List[Dict]) -> List[ActionDefinition]:
         actions = []
         for index, item in enumerate(actions_list):
@@ -118,7 +114,6 @@ class ActionEngine:
                 raise e
         return actions
 
-    # P1.2: Lazy gRPC imports — only import grpc tooling when RPC is actually used
     def _compile_and_load_proto(self, proto_path: str):
         from grpc_tools import protoc
 
@@ -143,19 +138,21 @@ class ActionEngine:
         if protoc.main(protoc_args) != 0:
             raise ExecutionException(f"Failed to compile proto file: {proto_file}")
 
+        pb2_name = proto_file.replace('.proto', '_pb2')
+        pb2_grpc_name = proto_file.replace('.proto', '_pb2_grpc')
+        
         sys.path.insert(0, out_dir)
         try:
-            pb2_name = proto_file.replace('.proto', '_pb2')
-            pb2_grpc_name = proto_file.replace('.proto', '_pb2_grpc')
-
             pb2 = importlib.import_module(pb2_name)
             pb2_grpc = importlib.import_module(pb2_grpc_name)
+            return pb2, pb2_grpc
+        except Exception:
+            sys.modules.pop(pb2_name, None)
+            sys.modules.pop(pb2_grpc_name, None)
+            raise
         finally:
             sys.path.remove(out_dir)
 
-        return pb2, pb2_grpc
-
-    # P1.3: Refactor to use immutable model_copy instead of in-place mutation
     def _apply_global_defaults(self):
         defaults = self.agent_config.global_defaults
         for action in self.actions:
@@ -166,16 +163,13 @@ class ActionEngine:
                 config = action.execution_config
                 api_def = defaults.api_request
 
-                # Compute merged headers (new dict, no mutation)
                 merged_headers = api_def.headers.copy()
                 if config.headers:
                     merged_headers.update(config.headers)
 
-                # Compute protocol and timeout
                 new_protocol = config.protocol or api_def.protocol
                 new_timeout = config.timeout if config.timeout is not None else api_def.timeout
 
-                # P1.4: Fix URL construction — all relative URLs resolve against base_url + protocol
                 new_url = config.url
                 if new_url and not new_url.startswith("http"):
                     if api_def.base_url:
@@ -187,7 +181,6 @@ class ActionEngine:
                     else:
                         new_url = f"{new_protocol}://{new_url}"
 
-                # Create immutable copy with merged values
                 action.execution_config = config.model_copy(update={
                     "headers": merged_headers,
                     "protocol": new_protocol,
@@ -214,12 +207,22 @@ class ActionEngine:
                 self._apply_response_fallback(action, vec_def.on_error)
 
             elif action.type == "rpc_request" and defaults.rpc_request and action.execution_config:
+                config = action.execution_config
+                rpc_def = defaults.rpc_request
+                
+                merged_headers = rpc_def.headers.copy()
+                if config.headers:
+                    merged_headers.update(config.headers)
+                
+                action.execution_config = config.model_copy(update={
+                    "headers": merged_headers,
+                })
+                
                 self._apply_response_fallback(action, defaults.rpc_request.on_error)
 
             elif action.type == "internal" and defaults.internal:
                 self._apply_response_fallback(action, defaults.internal.on_error)
 
-    # P1.7: Fix on_error fallback — explicitly check is None instead of falsy
     def _apply_response_fallback(self, action: ActionDefinition, fallback_error: str):
         if not action.response_config:
             from .config import ResponseConfig
@@ -227,7 +230,6 @@ class ActionEngine:
         elif action.response_config.on_error is None:
             action.response_config.on_error = fallback_error
 
-    # P1.6: Add runtime enum validation via model_validator on the dynamic schema
     def _create_args_schema(self, parameters: Dict[str, Any]) -> Type[BaseModel]:
         fields = {}
         for name, param in parameters.items():
@@ -256,7 +258,6 @@ class ActionEngine:
 
             fields[name] = (py_type, Field(default=default_val, **field_args))
 
-        # Runtime enum validator for the dynamic model
         def _validate_enums(cls, values):
             for p_name, p in parameters.items():
                 if p.enum and p_name in values and values[p_name] is not None:
@@ -270,7 +271,6 @@ class ActionEngine:
             **fields,
         )
 
-    # P1.12: Unified confirmation gate — single source of truth for confirmation logic
     def _gate_confirmation(self, action: ActionDefinition, kwargs: dict) -> None:
         """Unified confirmation gate.
 
@@ -381,6 +381,9 @@ class ActionEngine:
         except UnsupportedDatabaseDriver as e:
             logger.error(f"Configuration Error: {e}")
             raise
+        except EmbeddingGenerationError as e:
+            logger.error(f"Embedding generation failed: {e}")
+            raise
         except Exception as e:
             logger.error(f"Vector search failed: {e}")
             if action.response_config and action.response_config.on_error:
@@ -389,7 +392,6 @@ class ActionEngine:
 
         return self._parse_response({"data": search_results}, action.response_config)
 
-    # P1.2: Lazy gRPC imports — only loaded when RPC action is executed
     def _execute_rpc(self, action: ActionDefinition, **kwargs):
         import grpc
         from google.protobuf.json_format import MessageToDict
@@ -413,7 +415,7 @@ class ActionEngine:
         if not method_descriptor:
             raise MethodNotFound(f"Method '{config.method}' not found in service '{config.service}'")
 
-        request_class = getattr(pb2, method_descriptor.input_type.name)
+        request_class = self._resolve_proto_message_class(pb2, method_descriptor.input_type)
 
         message_params = {
             k: v for k, v in kwargs.items() 
@@ -431,10 +433,8 @@ class ActionEngine:
 
         logger.info(f"Executing gRPC {config.host}/{config.service}/{config.method}")
 
-        # P0.7: Safe timeout fallback
         timeout_seconds = (config.timeout or 10000) / 1000
 
-        # P1.6: Channel created inside try to ensure close on unexpected errors
         channel = None
         try:
             channel = grpc.insecure_channel(config.host)
@@ -466,7 +466,6 @@ class ActionEngine:
 
         values = {}
 
-        # P1.13: Functionalize ResponseConfig.mode — only json mode performs extraction
         if config.mode == "json" and config.values:
             for key, val_def in config.values.items():
                 try:
@@ -493,6 +492,40 @@ class ActionEngine:
             return result
 
         return str(data)
+    
+    def _resolve_proto_message_class(self, pb2_module, descriptor):
+        """Resolve a protobuf message class from its descriptor, handling nesting.
+        
+        For nested messages (e.g., Outer.Inner), traverses the containing_type chain
+        to find the correct Python class.
+        
+        Args:
+            pb2_module: The compiled protobuf Python module (_pb2).
+            descriptor: A protobuf Descriptor object for the message type.
+            
+        Returns:
+            The Python message class.
+            
+        Raises:
+            ServiceNotFound: If the message class cannot be resolved.
+        """
+        if descriptor.containing_type is None:
+            try:
+                return getattr(pb2_module, descriptor.name)
+            except AttributeError as e:
+                raise ServiceNotFound(
+                    f"Message type '{descriptor.name}' not found in protobuf module. "
+                    f"Ensure the .proto file defines this message at the top level."
+                ) from e
+        
+        parent_class = self._resolve_proto_message_class(pb2_module, descriptor.containing_type)
+        try:
+            return getattr(parent_class, descriptor.name)
+        except AttributeError as e:
+            raise ServiceNotFound(
+                f"Nested message type '{descriptor.name}' not found in parent '{parent_class.__name__}'. "
+                f"Ensure the .proto file defines this nested message correctly."
+            ) from e
 
     def build_tools(self) -> List[StructuredTool]:
         tools = []
@@ -502,7 +535,6 @@ class ActionEngine:
 
             def make_runner(act: ActionDefinition):
                 def runner(**kwargs):
-                    # P1.12: Unified confirmation gate
                     self._gate_confirmation(act, kwargs)
 
                     if act.type == "api_request":
@@ -542,7 +574,6 @@ class ActionEngine:
             return prompt
         return f"System: {ctx.title}. {ctx.description}"
 
-    # P1.8: Harden execute_action_directly with active-check, schema validation, and confirmation gating
     def execute_action_directly(
         self,
         action_name: str,
@@ -556,7 +587,6 @@ class ActionEngine:
         if not act.active:
             raise ValueError(f"Action '{action_name}' is not active.")
 
-        # Validate parameters against the Pydantic schema
         if act.parameters:
             ArgsSchema = self._create_args_schema(act.parameters)
             try:
@@ -567,7 +597,6 @@ class ActionEngine:
                     f"Parameter validation failed for '{action_name}': {e}"
                 )
 
-        # P1.12: Honor confirmation requirements unless explicitly skipped
         if not skip_confirmation:
             self._gate_confirmation(act, kwargs)
 
