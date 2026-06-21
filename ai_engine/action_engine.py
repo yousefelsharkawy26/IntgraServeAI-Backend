@@ -1,10 +1,9 @@
-# ai_engine/action_engine.py
-
 import os
 import sys
 import tempfile
 import importlib
 import json
+import hashlib
 import logging
 import requests
 from typing import List, Dict, Any, Type, Optional
@@ -123,36 +122,37 @@ class ActionEngine:
         from grpc_tools import protoc
         
         abs_proto_path = os.path.abspath(proto_path)
-        
         if not os.path.exists(abs_proto_path):
             raise ProtoNotFound(f"Proto file not found: {abs_proto_path}")
 
         proto_dir = os.path.dirname(abs_proto_path)
         proto_file = os.path.basename(abs_proto_path)
         
-        out_dir = tempfile.mkdtemp()
+        cache_key = hashlib.md5(abs_proto_path.encode()).hexdigest()
+        out_dir = os.path.join(tempfile.gettempdir(), "ai_engine_proto_cache", cache_key)
+        os.makedirs(out_dir, exist_ok=True)
         
-        protoc_args =[
-            'grpc_tools.protoc',
-            f'-I{proto_dir}',
-            f'--python_out={out_dir}',
-            f'--grpc_python_out={out_dir}',
-            abs_proto_path
-        ]
-        
-        if protoc.main(protoc_args) != 0:
-            raise ExecutionException(f"Failed to compile proto file: {proto_file}")
-
         pb2_name = proto_file.replace('.proto', '_pb2')
         pb2_grpc_name = proto_file.replace('.proto', '_pb2_grpc')
+        pb2_path = os.path.join(out_dir, f"{pb2_name}.py")
         
+        if not os.path.exists(pb2_path):
+            protoc_args = [
+                'grpc_tools.protoc',
+                f'-I{proto_dir}',
+                f'--python_out={out_dir}',
+                f'--grpc_python_out={out_dir}',
+                abs_proto_path
+            ]
+            if protoc.main(protoc_args) != 0:
+                raise ExecutionException(f"Failed to compile proto file: {proto_file}")
+
         sys.path.insert(0, out_dir)
         try:
             pb2 = importlib.import_module(pb2_name)
             pb2_grpc = importlib.import_module(pb2_grpc_name)
             return pb2, pb2_grpc
         except Exception:
-            # P3.10: Clean up partially imported modules from sys.modules
             sys.modules.pop(pb2_name, None)
             sys.modules.pop(pb2_grpc_name, None)
             raise

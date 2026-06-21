@@ -53,6 +53,8 @@ class PostgresVectorDriver(BaseVectorDriver):
         conn_kwargs = {}
         if config.auth:
             conn_kwargs.update(config.auth)
+            if "pass" in conn_kwargs:
+                conn_kwargs["password"] = conn_kwargs.pop("pass")
         
         try:
             with psycopg2.connect(config.connection_string, **conn_kwargs) as conn:

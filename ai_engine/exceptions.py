@@ -109,4 +109,4 @@ def get_correlation_id() -> str:
 
 def set_correlation_id(cid: str):
     """Set the correlation ID for the current async context."""
-    _correlation_id_var.set(cid)
+    return _correlation_id_var.set(cid)

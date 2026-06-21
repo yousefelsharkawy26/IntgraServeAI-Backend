@@ -23,7 +23,6 @@ class BaseProvider(ABC):
     def get_embeddings(self, config: EmbeddingConfig) -> Embeddings:
         pass
 
-    # P4.3: Shared validation helpers for provider configuration
     def _validate_llm_config(self, config: LLMConfig) -> None:
         """Validate LLM configuration before instantiation.
         
@@ -98,11 +97,9 @@ class OllamaProvider(BaseProvider):
         base_url = "http://localhost:11434"
         if config.local_loading_params and config.local_loading_params.base_url:
             base_url = config.local_loading_params.base_url
-        # P4.2: Strip /v1 suffix for native Ollama API compatibility.
-        # The /v1 path is used by OpenAI compatibility mode; native Ollama
-        # endpoints (ChatOllama, OllamaEmbeddings) expect the base URL only.
-        if base_url.endswith("/v1"):
-            base_url = base_url[:-3]
+        
+        if base_url.rstrip("/").endswith("/v1"):
+            base_url = base_url.rstrip("/")[:-3]
         return base_url.rstrip("/")
 
     def get_llm(self, config: LLMConfig) -> BaseChatModel:
@@ -146,8 +143,6 @@ class GoogleProvider(BaseProvider):
 
 
 class HuggingFaceProvider(BaseProvider):
-    # P4.1: Cache HuggingFace local model downloads to avoid repeated
-    # hf_hub_download overhead on every get_llm() call.
     @staticmethod
     @functools.lru_cache(maxsize=32)
     def _cached_hf_download(repo_id: str, filename: str) -> str:
@@ -158,9 +153,11 @@ class HuggingFaceProvider(BaseProvider):
         self._validate_llm_config(config)
         if config.location == "local":
             from langchain_community.chat_models import ChatLlamaCpp
-            
+            if not config.local_loading_params or not config.local_loading_params.gguf_file:
+                raise ProviderConfigurationError(
+                    "local_loading_params.gguf_file is required for local HuggingFace LLM loading"
+                )
             gguf_file = config.local_loading_params.gguf_file
-            # P4.1: Use cached download to avoid repeated cache validation overhead
             model_path = self._cached_hf_download(
                 repo_id=config.model_name,
                 filename=gguf_file
