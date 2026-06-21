@@ -195,13 +195,20 @@ class HuggingFaceProvider(BaseProvider):
 
 
 class ModelFactory:
-    _providers: dict[str, BaseProvider] = {
+    _providers: dict[str, type[BaseProvider]] = {
         "openai": OpenAIProvider,
         "ollama": OllamaProvider,
         "huggingface": HuggingFaceProvider,
         "google": GoogleProvider,
         "groq": GroqProvider,
     }
+    _instances: dict[str, BaseProvider] = {}
+
+    @classmethod
+    def _get_provider(cls, name: str) -> BaseProvider:
+        if name not in cls._instances:
+            cls._instances[name] = cls._providers[name]()
+        return cls._instances[name]
 
     @classmethod
     def get_llm(cls, config: LLMConfig) -> BaseChatModel:
@@ -212,8 +219,8 @@ class ModelFactory:
                 f"Supported: {list(cls._providers.keys())}"
             )
         
-        provider_instance = cls._providers[provider_name]()
-        return provider_instance.get_llm(config)
+        provider = cls._get_provider(config.provider.lower())
+        return provider.get_llm(config)
 
     @classmethod
     def get_embeddings(cls, config: EmbeddingConfig) -> Embeddings:
@@ -224,5 +231,5 @@ class ModelFactory:
                 f"Supported: {list(cls._providers.keys())}"
             )
         
-        provider_instance = cls._providers[provider_name]()
-        return provider_instance.get_embeddings(config)
+        provider = cls._get_provider(config.provider.lower())
+        return provider.get_embeddings(config)

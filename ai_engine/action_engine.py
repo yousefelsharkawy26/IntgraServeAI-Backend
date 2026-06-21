@@ -11,7 +11,7 @@ from pydantic import create_model, Field, BaseModel, ValidationError, model_vali
 from jsonpath_ng import parse as jsonpath_parse
 from langchain_core.tools import StructuredTool
 
-from .config import AgentConfiguration, ActionDefinition, ResponseConfig
+from .config import AgentConfiguration, ActionDefinition, ResponseConfig, EmbeddingConfig
 from .vector_search import generate_embedding, get_vector_driver
 from .exceptions import (
     ActionEngineException, MissingField, InvalidActionStructure, ProtoNotFound, MethodNotFound, ServiceNotFound,
@@ -37,7 +37,6 @@ class ActionEngine:
         else:
             self.actions: List[ActionDefinition] = self._load_actions_config(actions_config_path)
 
-        # P0.8: Validate action name uniqueness
         seen_names = set()
         for action in self.actions:
             if action.name in seen_names:
@@ -202,7 +201,10 @@ class ActionEngine:
 
                 new_connector = config.connector or vec_def.connector
                 new_connection_string = config.connection_string or vec_def.connection_string
-                new_embedding_config = config.embedding_config or vec_def.embedding_config
+                action_config = config.embedding_config.model_dump() if config.embedding_config else {}
+                global_config = vec_def.embedding_config.model_dump() if vec_def.embedding_config else {}
+                merged = {**global_config, **{k: v for k, v in action_config.items() if v is not None}}
+                new_embedding_config = EmbeddingConfig(**merged) if merged else None
 
                 action.execution_config = config.model_copy(update={
                     "connector": new_connector,

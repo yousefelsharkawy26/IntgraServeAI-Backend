@@ -1,8 +1,4 @@
-# ai_engine/vector_search.py
-
-import json
 import logging
-import struct
 import re
 from abc import ABC, abstractmethod
 from typing import List, Dict, Any

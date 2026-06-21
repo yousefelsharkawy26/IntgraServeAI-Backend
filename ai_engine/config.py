@@ -1,8 +1,6 @@
-# ai_engine/config.py
-
 import os
 import re
-from typing import Any, Dict, List, Optional, Literal, Union
+from typing import Any, Dict, List, Optional, Literal
 from pydantic import BaseModel, Field, field_validator, model_validator, ConfigDict
 from .exceptions import *
 
@@ -13,7 +11,7 @@ def inject_env(text: Any) -> Any:
         MissingField: If a referenced environment variable is not set.
     """
     if isinstance(text, str):
-        pattern = r"\{\{env\.(.*?)\}\}"
+        pattern = r"\{\{env\.([A-Za-z0-9_]+)\}\}"
         matches = re.findall(pattern, text)
         for var in matches:
             val = os.getenv(var)
