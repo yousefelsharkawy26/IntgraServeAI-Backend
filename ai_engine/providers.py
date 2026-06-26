@@ -9,7 +9,7 @@ from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.embeddings import Embeddings
 
 from .config import LLMConfig, EmbeddingConfig
-from .exceptions import ProviderConfigurationError, CorrelationIdAdapter
+from utils.exceptions import ProviderConfigurationError, CorrelationIdAdapter
 
 logger = CorrelationIdAdapter(logging.getLogger(__name__))
 

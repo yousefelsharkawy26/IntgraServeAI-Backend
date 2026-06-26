@@ -4,9 +4,9 @@ from abc import ABC, abstractmethod
 from typing import List, Dict, Any
 
 from .config import ExecutionConfig, EmbeddingConfig
-from .exceptions import (
+from utils.exceptions import (
     UnsupportedDatabaseDriver, EmbeddingGenerationError, VectorSearchError,
-    CorrelationIdAdapter,
+    CorrelationIdAdapter, ProviderConfigurationError
 )
 from .providers import ModelFactory
 
@@ -15,11 +15,13 @@ logger = CorrelationIdAdapter(logging.getLogger(__name__))
 
 def generate_embedding(text: str, config: EmbeddingConfig) -> List[float]:
     """Generates a vector embedding using the configured provider dynamically."""
-    try:
-        embeddings_model = ModelFactory.get_embeddings(config)
-        return embeddings_model.embed_query(text)
-    except Exception as e:
-        raise EmbeddingGenerationError(f"Failed to generate embedding: {str(e)}")
+    if isinstance(config, EmbeddingConfig):
+        try:
+            embeddings_model = ModelFactory.get_embeddings(config)
+            return embeddings_model.embed_query(text)
+        except Exception as e:
+            raise EmbeddingGenerationError(f"Failed to generate embedding: {str(e)}")
+    raise ProviderConfigurationError(f" recieved config object type: '{str(type(config))}' instead of 'EmbeddingConfig' ")
     
 
 class BaseVectorDriver(ABC):

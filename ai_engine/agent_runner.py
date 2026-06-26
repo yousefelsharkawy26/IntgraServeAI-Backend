@@ -9,7 +9,7 @@ from langchain_core.messages import BaseMessage, SystemMessage, ToolMessage, AIM
 
 from .action_engine import ActionEngine
 from .providers import ModelFactory
-from .exceptions import (
+from utils.exceptions import (
     ActionRequiresConfirmationError, ParsingException, ExecutionException,
     CorrelationIdAdapter, get_correlation_id, set_correlation_id,
 )

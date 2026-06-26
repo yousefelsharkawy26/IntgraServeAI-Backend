@@ -16,7 +16,7 @@ from utils.schemas.user_schemas import UserListResponse
 from utils.schemas.auth_schemas import MessageResponse
 from utils.dependencies import require_admin, get_current_active_user
 from models.user import User
-from utils.exceptions import NotFoundException, ConflictException, BadRequestException
+from utils.exceptions import NotFoundException
 
 router = APIRouter()
 

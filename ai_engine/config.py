@@ -2,7 +2,7 @@ import os
 import re
 from typing import Any, Dict, List, Optional, Literal
 from pydantic import BaseModel, Field, field_validator, model_validator, ConfigDict
-from .exceptions import *
+from utils.exceptions import InvalidParamValueType, MissingField, InvalidActionStructure
 
 def inject_env(text: Any) -> Any:
     """Recursively inject environment variables into strings.
@@ -33,7 +33,8 @@ class ActionParameter(BaseModel):
     description: str
     enum: Optional[List[Any]] = None
 
-    @field_validator('type')
+    @field_validator('type', mode='before')
+    @classmethod
     def validate_type(cls, v):
         valid_types = ["string", "integer", "number", "boolean", "array", "object"]
         if v not in valid_types:
@@ -131,16 +132,6 @@ class ExecutionConfig(BaseModel):
     proto_file: Optional[str] = None
     driver_options: Optional[Dict[str, Any]] = None
     
-    @field_validator('method')
-    def validate_method(cls, v):
-        allowed = {'GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'}
-        normalized = v.upper()
-        if normalized not in allowed:
-            raise InvalidActionStructure(
-                f"HTTP method '{v}' is not supported. Use one of: {', '.join(sorted(allowed))}"
-            )
-        return normalized
-    
     @model_validator(mode='before')
     def inject_secrets(cls, values):
         return inject_env(values)
@@ -170,6 +161,9 @@ class ActionDefinition(BaseModel):
     @model_validator(mode='before')
     @classmethod
     def handle_aliases_and_validation(cls, values):
+        if not isinstance(values, dict):
+            return values
+
         if 'title' in values:
             if 'name' not in values:
                 values['name'] = values.pop('title')
@@ -180,6 +174,7 @@ class ActionDefinition(BaseModel):
         for r in required:
             if r not in values:
                 raise MissingField(f"Action missing field: {r}")
+
         return values
 
     @model_validator(mode='after')
@@ -189,6 +184,14 @@ class ActionDefinition(BaseModel):
                 raise MissingField("execution_config required for api_request")
             if not self.execution_config.url:
                 raise MissingField("url is required for api_request")
+            allowed = {'GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'}
+            normalized = self.execution_config.method.upper()
+            if normalized not in allowed:
+                raise InvalidActionStructure(
+                    f"HTTP method '{self.execution_config.method}' is not supported. "
+                    f"Use one of: {', '.join(sorted(allowed))}"
+                )
+            self.execution_config.method = normalized
         if self.type == "rpc_request":
             if not self.execution_config:
                 raise MissingField("execution_config required for rpc_request")

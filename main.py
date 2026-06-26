@@ -12,12 +12,7 @@ from utils.exceptions import (
     BaseAPIException,
     AuthenticationException,
     ValidationException,
-    InvalidTokenException,
-    UnauthorizedException,
-    NotFoundException,
-    BadRequestException,
-    ConflictException,
-    ServerException
+    InvalidTokenException
 )
 
 # Setup logging
@@ -129,7 +124,7 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
     
     # ✅ Return errors directly without detail wrapper
     return JSONResponse(
-        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
         content={"errors": errors}
     )
 

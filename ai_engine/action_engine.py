@@ -3,6 +3,7 @@ import sys
 import tempfile
 import importlib
 import json
+import re
 import hashlib
 import logging
 import requests
@@ -13,11 +14,11 @@ from langchain_core.tools import StructuredTool
 
 from .config import AgentConfiguration, ActionDefinition, ResponseConfig, EmbeddingConfig
 from .vector_search import generate_embedding, get_vector_driver
-from .exceptions import (
+from utils.exceptions import (
     ActionEngineException, MissingField, InvalidActionStructure, ProtoNotFound, MethodNotFound, ServiceNotFound,
     PathParamNotFound, BodyParamOnGetRequest, ActionRequiresConfirmationError,
     ParsingException, VectorSearchError, ExecutionException, EmbeddingGenerationError,
-    UnsupportedDatabaseDriver, ActionNotFound, ActionNotActive, CorrelationIdAdapter,
+    UnsupportedDatabaseDriver, ActionNotFound, ActionNotActive, CorrelationIdAdapter
 )
 
 logger = CorrelationIdAdapter(logging.getLogger(__name__))
@@ -318,8 +319,8 @@ class ActionEngine:
             sanitized = self._sanitize_path_param(k, v)
             url = url.replace(f"{{{k}}}", sanitized)
 
-        if "{{" in url and "}}" in url:
-            raise PathParamNotFound(f"URL contains unresolved path parameters: {url}")
+            if re.search(r'\{[^{}]+\}', url):
+                raise PathParamNotFound(f"URL contains unresolved path parameters: {url}")
 
         query_params = {
             k: v for k, v in kwargs.items()
@@ -389,9 +390,10 @@ class ActionEngine:
         logger.info(f"Executing Vector Search for topic: '{topic_text}'")
 
         try:
-            query_vector = generate_embedding(topic_text, config.embedding_config)
-            driver = get_vector_driver(config.connector)
-            search_results = driver.search(query_vector, config)
+            if config.embedding_config is not None:
+                query_vector = generate_embedding(topic_text, config.embedding_config)
+                driver = get_vector_driver(config.connector)
+                search_results = driver.search(query_vector, config)
             
         except UnsupportedDatabaseDriver as e:
             logger.error(f"Configuration Error: {e}")
@@ -399,12 +401,15 @@ class ActionEngine:
         except EmbeddingGenerationError as e:
             logger.error(f"Embedding generation failed: {e}")
             raise
+        except VectorSearchError as e:
+            logger.error(f"Vector search failed: {e}")
+            raise
         except Exception as e:
             logger.error(f"Vector search failed: {e}")
             if action.response_config and action.response_config.on_error:
                 return action.response_config.on_error.replace("{{error}}", str(e))
             return f"Vector Database Error: {str(e)}"
-
+        
         return self._parse_response({"data": search_results}, action.response_config)
 
     def _execute_rpc(self, action: ActionDefinition, **kwargs):
@@ -574,7 +579,6 @@ class ActionEngine:
             return prompt
         return f"System: {ctx.title}. {ctx.description}"
 
-    # P5.4: Use ActionNotFound and ActionNotActive instead of generic ValueError
     def execute_action_directly(
         self,
         action_name: str,
@@ -612,6 +616,8 @@ class ActionEngine:
                 return self._execute_rpc(act, **kwargs)
             else:
                 return "Action type not implemented in engine."
+        except ActionEngineException:
+            raise
         except Exception as e:
             logger.error(f"Manual execution failed: {str(e)}")
             return f"Action Failed: {str(e)}"

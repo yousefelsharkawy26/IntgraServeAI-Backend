@@ -1,10 +1,162 @@
-# utils/exceptions.py
+"""Unified system exceptions.
+
+This module consolidates all exceptions used across the system.
+They are organized into two primary layers:
+
+1. **Internal Engine Exceptions** (inherit from ``Exception``)
+   Used within the AI Engine for internal logic, parsing, and execution.
+   These are NOT HTTP-specific and can be raised in any context.
+
+2. **HTTP API Exceptions** (inherit from ``fastapi.HTTPException``)
+   Used by the API layer to return structured error responses to clients.
+   These are further divided into general API errors and action-parsing errors.
+"""
+
 from fastapi import HTTPException, status
 from typing import Optional, Dict, Any
+import contextvars
+import logging
 
+
+# =============================================================================
+# INTERNAL ENGINE EXCEPTIONS
+# =============================================================================
+
+class ActionEngineException(Exception):
+    """Base class for all Action Engine errors."""
+    pass
+
+
+# --- Internal Parsing Errors ---
+
+class ParsingException(ActionEngineException):
+    """Base exception for internal action parsing errors."""
+    pass
+
+
+class MissingField(ParsingException):
+    """Exception when a required field is missing during internal parsing."""
+    pass
+
+
+class InvalidActionStructure(ParsingException):
+    """Exception for invalid or incomplete action structure during internal parsing."""
+    pass
+
+class InvalidActionField(ParsingException):
+    """Exception for unknown/foreign fields in action during internal parsing."""
+    pass
+
+
+class UnsupportedActionType(ParsingException):
+    """Exception for unsupported action types during internal parsing."""
+    pass
+
+
+class InvalidParamType(ParsingException):
+    """Exception for invalid parameter types during internal parsing."""
+    pass
+
+
+class InvalidParamValueType(ParsingException):
+    """Exception for invalid parameter value types during internal parsing."""
+    pass
+
+
+class InvalidResponseMode(ParsingException):
+    """Exception for invalid response modes during internal parsing."""
+    pass
+
+
+class InvalidConnectorType(ParsingException):
+    """Exception for invalid connector types during internal parsing."""
+    pass
+
+
+# --- Internal Execution Errors ---
+
+class ExecutionException(ActionEngineException):
+    """Base exception for action execution errors."""
+    pass
+
+
+class PathParamNotFound(ExecutionException):
+    """Exception when path parameter is not found during execution."""
+    pass
+
+
+class BodyParamOnGetRequest(ExecutionException):
+    """Exception when body parameter is used with GET request during execution."""
+    pass
+
+
+class UserDeniedConfirmation(ExecutionException):
+    """Exception when user denies a confirmation prompt."""
+    pass
+
+
+class ProtoNotFound(ExecutionException):
+    """Exception when protobuf definition is not found."""
+    pass
+
+
+class ServiceNotFound(ExecutionException):
+    """Exception when gRPC service is not found."""
+    pass
+
+
+class MethodNotFound(ExecutionException):
+    """Exception when gRPC method is not found."""
+    pass
+
+
+class UnsupportedDatabaseDriver(ExecutionException):
+    """Exception when database driver is not supported."""
+    pass
+
+
+class EmbeddingGenerationError(ExecutionException):
+    """Exception when embedding generation fails."""
+    pass
+
+
+class VectorSearchError(ExecutionException):
+    """Exception when vector search fails."""
+    pass
+
+
+class ActionNotFound(ExecutionException):
+    """Raised when a requested action does not exist in the engine."""
+    pass
+
+
+class ActionNotActive(ExecutionException):
+    """Raised when a requested action exists but is not active."""
+    pass
+
+
+class ProviderConfigurationError(ExecutionException):
+    """Raised when a provider is misconfigured (missing API key, invalid model, etc.)."""
+    pass
+
+
+class ActionRequiresConfirmationError(ActionEngineException):
+    """Raised when an action requires user confirmation before execution."""
+    def __init__(self, message: str, action_name: str, params: dict):
+        super().__init__(message)
+        self.action_name = action_name
+        self.params = params
+
+
+# =============================================================================
+# HTTP API EXCEPTIONS
+# =============================================================================
 
 class BaseAPIException(HTTPException):
-    """Base exception for all API exceptions"""
+    """Base exception for all API exceptions.
+
+    Response format: ``{"message": "..."}`` or ``{"errors": {...}}``
+    """
     def __init__(
         self,
         status_code: int,
@@ -18,18 +170,20 @@ class BaseAPIException(HTTPException):
         super().__init__(status_code=status_code, detail=detail)
 
 
+# --- General HTTP Errors ---
+
 class ValidationException(BaseAPIException):
-    """Exception for validation errors"""
+    """Exception for validation errors (HTTP 422)."""
     def __init__(self, errors: Dict[str, str]):
         super().__init__(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             message="Validation failed",
             errors=errors
         )
 
 
 class AuthenticationException(BaseAPIException):
-    """Exception for authentication errors"""
+    """Exception for authentication errors (HTTP 401)."""
     def __init__(self, message: str = "Invalid email or password"):
         super().__init__(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -38,7 +192,7 @@ class AuthenticationException(BaseAPIException):
 
 
 class UnauthorizedException(BaseAPIException):
-    """Exception for unauthorized access"""
+    """Exception for unauthorized access (HTTP 401)."""
     def __init__(self, message: str = "Unauthorized access"):
         super().__init__(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -47,7 +201,7 @@ class UnauthorizedException(BaseAPIException):
 
 
 class NotFoundException(BaseAPIException):
-    """Exception for resource not found"""
+    """Exception for resource not found (HTTP 404)."""
     def __init__(self, message: str = "Resource not found"):
         super().__init__(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -56,7 +210,7 @@ class NotFoundException(BaseAPIException):
 
 
 class BadRequestException(BaseAPIException):
-    """Exception for bad requests"""
+    """Exception for bad requests (HTTP 400)."""
     def __init__(self, message: str = "Bad request"):
         super().__init__(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -65,7 +219,7 @@ class BadRequestException(BaseAPIException):
 
 
 class ConflictException(BaseAPIException):
-    """Exception for conflicts (e.g., duplicate entries)"""
+    """Exception for conflicts, e.g. duplicate entries (HTTP 409)."""
     def __init__(self, message: str = "Resource already exists"):
         super().__init__(
             status_code=status.HTTP_409_CONFLICT,
@@ -74,7 +228,7 @@ class ConflictException(BaseAPIException):
 
 
 class InvalidTokenException(BaseAPIException):
-    """Exception for invalid or expired tokens"""
+    """Exception for invalid or expired tokens (HTTP 400)."""
     def __init__(self, message: str = "Invalid Link."):
         super().__init__(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -83,7 +237,7 @@ class InvalidTokenException(BaseAPIException):
 
 
 class ServerException(BaseAPIException):
-    """Exception for server errors"""
+    """Exception for server errors (HTTP 500)."""
     def __init__(self, message: str = "Internal server error"):
         super().__init__(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -91,25 +245,30 @@ class ServerException(BaseAPIException):
         )
 
 
-# ============================================================================
-# Action Parsing Exceptions
-# ============================================================================
+# --- HTTP Action Parsing Errors (HTTP 422) ---
 
-class ParsingException(HTTPException):
-    """Base exception for all action parsing errors"""
+class HTTPActionParsingException(HTTPException):
+    """Base exception for HTTP action parsing errors.
+
+    Response format: ``{"error": "ErrorType", "message": "..."}``
+
+    .. note::
+        This was formerly ``ParsingException`` in ``utils/exceptions.py``.
+        Renamed to avoid collision with the internal ``ParsingException``.
+    """
     def __init__(self, error_type: str, message: str):
         detail = {
             "error": error_type,
             "message": message
         }
         super().__init__(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=detail
         )
 
 
-class MissingFieldException(ParsingException):
-    """Exception when a required field is missing"""
+class MissingFieldException(HTTPActionParsingException):
+    """Exception when a required field is missing in an HTTP request."""
     def __init__(self, field: str, context: str = None):
         if context:
             message = f"Missing required field: '{field}' in {context}"
@@ -121,8 +280,8 @@ class MissingFieldException(ParsingException):
         )
 
 
-class InvalidActionStructureException(ParsingException):
-    """Exception for invalid or incomplete action structure"""
+class InvalidActionStructureException(HTTPActionParsingException):
+    """Exception for invalid or incomplete action structure in an HTTP request."""
     def __init__(self, message: str = "Invalid or incomplete action structure"):
         super().__init__(
             error_type="InvalidActionStructure",
@@ -130,8 +289,8 @@ class InvalidActionStructureException(ParsingException):
         )
 
 
-class InvalidActionFieldException(ParsingException):
-    """Exception for unknown/foreign fields in action"""
+class InvalidActionFieldException(HTTPActionParsingException):
+    """Exception for unknown/foreign fields in action in an HTTP request."""
     def __init__(self, field: str, context: str = None):
         if context:
             message = f"Unknown field '{field}' is not allowed in {context}"
@@ -143,10 +302,10 @@ class InvalidActionFieldException(ParsingException):
         )
 
 
-class UnsupportedActionTypeException(ParsingException):
-    """Exception for unsupported action types"""
+class UnsupportedActionTypeException(HTTPActionParsingException):
+    """Exception for unsupported action types in an HTTP request."""
     SUPPORTED_TYPES = ["api_request", "rpc_request", "internal"]
-    
+
     def __init__(self, action_type: str):
         message = (
             f"Action type '{action_type}' is not supported. "
@@ -158,8 +317,8 @@ class UnsupportedActionTypeException(ParsingException):
         )
 
 
-class InvalidParamTypeException(ParsingException):
-    """Exception for invalid parameter types"""
+class InvalidParamTypeException(HTTPActionParsingException):
+    """Exception for invalid parameter types in an HTTP request."""
     def __init__(self, param_type: str, action_type: str, allowed_types: list):
         message = (
             f"Parameter type '{param_type}' is not valid for '{action_type}' actions. "
@@ -171,10 +330,10 @@ class InvalidParamTypeException(ParsingException):
         )
 
 
-class InvalidParamValueTypeException(ParsingException):
-    """Exception for invalid parameter value types"""
+class InvalidParamValueTypeException(HTTPActionParsingException):
+    """Exception for invalid parameter value types in an HTTP request."""
     SUPPORTED_VALUE_TYPES = ["string", "integer"]
-    
+
     def __init__(self, value_type: str, param_name: str):
         message = (
             f"Parameter '{param_name}' has invalid value type '{value_type}'. "
@@ -186,8 +345,8 @@ class InvalidParamValueTypeException(ParsingException):
         )
 
 
-class InvalidResponseModeException(ParsingException):
-    """Exception for invalid response modes"""
+class InvalidResponseModeException(HTTPActionParsingException):
+    """Exception for invalid response modes in an HTTP request."""
     def __init__(self, mode: str, action_type: str, allowed_modes: list):
         message = (
             f"Response mode '{mode}' is not valid for '{action_type}' actions. "
@@ -199,8 +358,8 @@ class InvalidResponseModeException(ParsingException):
         )
 
 
-class BodyParamOnGetRequestException(ParsingException):
-    """Exception when body parameter is used with GET request"""
+class BodyParamOnGetRequestException(HTTPActionParsingException):
+    """Exception when body parameter is used with GET request."""
     def __init__(self, param_name: str):
         message = f"Body parameter '{param_name}' is not allowed on GET requests"
         super().__init__(
@@ -209,8 +368,8 @@ class BodyParamOnGetRequestException(ParsingException):
         )
 
 
-class PathParamNotInUrlException(ParsingException):
-    """Exception when path parameter is not found in URL"""
+class PathParamNotInUrlException(HTTPActionParsingException):
+    """Exception when path parameter is not found in URL."""
     def __init__(self, param_name: str, url: str):
         message = (
             f"Path parameter '{param_name}' not found in URL. "
@@ -222,8 +381,8 @@ class PathParamNotInUrlException(ParsingException):
         )
 
 
-class RpcFieldInNonRpcActionException(ParsingException):
-    """Exception when RPC-specific fields are used in non-RPC actions"""
+class RpcFieldInNonRpcActionException(HTTPActionParsingException):
+    """Exception when RPC-specific fields are used in non-RPC actions."""
     def __init__(self, field: str, action_type: str):
         message = f"Field '{field}' is only allowed in 'rpc_request' actions, not in '{action_type}'"
         super().__init__(
@@ -232,8 +391,8 @@ class RpcFieldInNonRpcActionException(ParsingException):
         )
 
 
-class InternalActionNotAllowedException(ParsingException):
-    """Exception when trying to create/update/delete internal actions"""
+class InternalActionNotAllowedException(HTTPActionParsingException):
+    """Exception when trying to create/update/delete internal actions."""
     def __init__(self, operation: str = "modify"):
         message = f"Cannot {operation} internal actions. They are system-defined and read-only."
         super().__init__(
@@ -242,8 +401,8 @@ class InternalActionNotAllowedException(ParsingException):
         )
 
 
-class DuplicateActionNameException(ParsingException):
-    """Exception when action name already exists"""
+class DuplicateActionNameException(HTTPActionParsingException):
+    """Exception when action name already exists."""
     def __init__(self, name: str):
         message = f"Action with name '{name}' already exists"
         super().__init__(
@@ -252,11 +411,40 @@ class DuplicateActionNameException(ParsingException):
         )
 
 
-class ActionNotFoundException(ParsingException):
-    """Exception when action is not found"""
+class ActionNotFoundException(HTTPActionParsingException):
+    """Exception when action is not found during HTTP request parsing."""
     def __init__(self, action_id: str):
         message = f"Action with ID '{action_id}' not found"
         super().__init__(
             error_type="ActionNotFound",
             message=message
         )
+
+
+# =============================================================================
+# Correlation ID Utilities
+# =============================================================================
+
+_correlation_id_var = contextvars.ContextVar('ai_engine_correlation_id', default=None)
+
+
+class CorrelationIdAdapter(logging.LoggerAdapter):
+    """Logger adapter that injects the current correlation_id into log messages.
+
+    Works seamlessly with async contexts via contextvars.
+    """
+    def process(self, msg, kwargs):
+        cid = _correlation_id_var.get()
+        if cid:
+            msg = f"[correlation_id={cid}] {msg}"
+        return msg, kwargs
+
+
+def get_correlation_id() -> str:
+    """Get the current correlation ID from the async context."""
+    return _correlation_id_var.get()
+
+
+def set_correlation_id(cid: str):
+    """Set the correlation ID for the current async context."""
+    return _correlation_id_var.set(cid)

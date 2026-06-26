@@ -19,7 +19,6 @@ from utils.schemas.action_schemas import (
 )
 from utils.exceptions import (
     NotFoundException,
-    ConflictException,
     MissingFieldException,
     InvalidActionStructureException,
     InvalidActionFieldException,
@@ -28,7 +27,6 @@ from utils.exceptions import (
     InvalidParamValueTypeException,
     InvalidResponseModeException,
     BodyParamOnGetRequestException,
-    PathParamNotInUrlException,
     RpcFieldInNonRpcActionException,
     InternalActionNotAllowedException,
     DuplicateActionNameException,
@@ -380,7 +378,7 @@ class ActionService:
             if not value_type:
                 raise MissingFieldException("type", f"parameters.{param_name}")
             
-            from utils.schemas.action_schemas import InvalidParamValueTypeException
+            from utils.exceptions import InvalidParamValueTypeException
             if value_type not in InvalidParamValueTypeException.SUPPORTED_VALUE_TYPES:
                 raise InvalidParamValueTypeException(value_type, param_name)
             
