@@ -9,9 +9,9 @@ from enum import Enum
 # ============================================================================
 
 class ActionType(str, Enum):
-    """Supported action types"""
     API_REQUEST = "api_request"
     RPC_REQUEST = "rpc_request"
+    VECTOR_QUERY = "vector_query"
     INTERNAL = "internal"
 
 
@@ -31,10 +31,10 @@ class ParamValueType(str, Enum):
 
 
 class ResponseMode(str, Enum):
-    """Response modes"""
     JSON = "json"
     XML = "xml"
     HTML = "html"
+    RAW = "raw"
 
 
 class Protocol(str, Enum):
@@ -62,6 +62,13 @@ ACTION_TYPE_CONFIG = {
         "allowed_param_types": ["message_field"],
         "allowed_response_modes": ["json"],
         "forbidden_exec_fields": ["url"],
+    },
+    ActionType.VECTOR_QUERY: {
+        "required_exec_fields": ["connector", "connection_string", "collection_name"],
+        "optional_exec_fields": ["max_results", "auth", "embedding_config"],
+        "allowed_param_types": ["vector"],
+        "allowed_response_modes": ["json", "raw"],
+        "forbidden_exec_fields": ["protocol", "url", "method", "host", "service", "proto_file", "headers", "timeout"],
     },
     ActionType.INTERNAL: {
         "required_exec_fields": [],
@@ -133,7 +140,14 @@ class ExecutionConfig(BaseModel):
     host: Optional[str] = Field(None, description="gRPC host address")
     service: Optional[str] = Field(None, description="gRPC service name")
     proto_file: Optional[str] = Field(None, description="Path to .proto file")
-    
+
+    connector: Optional[str] = Field(None, description="Vector DB connector")
+    connection_string: Optional[str] = Field(None, description="Vector DB connection string")
+    collection_name: Optional[str] = Field(None, description="Collection/table name")
+    max_results: Optional[int] = Field(None, description="Max search results")
+    auth: Optional[Dict[str, str]] = Field(None, description="Auth credentials")
+    embedding_config: Optional[Dict[str, Any]] = Field(None, description="Embedding model config")
+
     model_config = ConfigDict(extra="forbid")
 
 

@@ -49,6 +49,10 @@ class Settings(BaseSettings):
     ACTIONS_FILE_PATH: str = "data/actions.json"
     ACTIONS_BACKUP_ENABLED: bool = True
     ACTIONS_BACKUP_COUNT: int = 5
+
+    # AI Gateway
+    AI_GATEWAY_ENABLED: bool = True
+    CHAT_SESSION_TIMEOUT_MINUTES: int = 30
     
     @property
     def ACTIONS_FILE_FULL_PATH(self) -> Path:
