@@ -1,0 +1,202 @@
+{
+  "ACT-001": {
+    "name": "get_order_details",
+    "description": "Retrieves the status and item details of a specific order using the order ID.",
+    "type": "api_request",
+    "active": true,
+    "requires_confirmation": false,
+    "execution_config": {
+      "method": "GET",
+      "url": "/orders/{order_id}",
+      "timeout": 5000
+    },
+    "parameters": {
+      "order_id": {
+        "type": "string",
+        "required": true,
+        "param_type": "path",
+        "description": "The unique order identifier (e.g., ORD-998877)"
+      }
+    },
+    "response_config": {
+      "mode": "json",
+      "values": {
+        "status": {
+          "type": "string",
+          "path": "data.order.current_status"
+        },
+        "delivery_date": {
+          "type": "string",
+          "path": "data.order.estimated_delivery"
+        },
+        "total": {
+          "type": "string",
+          "path": "data.order.payment_summary.total"
+        }
+      },
+      "template": "The order is currently {{status}}. It is expected to arrive by {{delivery_date}}. Total amount: {{total}}.",
+      "on_error": "I could not find an order with that ID. Please check the number and try again."
+    }
+  },
+  "ACT-002": {
+    "name": "search_products_semantic",
+    "description": "Performs a semantic search to find products based on a natural language description (e.g., 'comfortable running shoes for winter').",
+    "type": "vector_query",
+    "active": true,
+    "requires_confirmation": false,
+    "execution_config": {
+      "collection_name": "products_embeddings",
+      "max_results": 5,
+      "auth": {
+        "user": "{{env.DB_USER}}",
+        "pass": "{{env.DB_PASS}}"
+      }
+    },
+    "parameters": {
+      "topic": {
+        "type": "string",
+        "required": true,
+        "param_type": "vector",
+        "description": "The user's description of the product they are looking for."
+      }
+    },
+    "response_config": {
+      "mode": "raw",
+      "template": "I found these products that match your description: {{value}}",
+      "on_error": "I'm having trouble searching the product catalog right now."
+    }
+  },
+  "ACT-003": {
+    "name": "update_shipping_address",
+    "description": "Updates the shipping address for an active order.",
+    "type": "api_request",
+    "active": true,
+    "requires_confirmation": true,
+    "execution_config": {
+      "method": "POST",
+      "url": "/orders/{order_id}/address",
+      "timeout": 8000
+    },
+    "parameters": {
+      "order_id": {
+        "type": "string",
+        "required": true,
+        "param_type": "path",
+        "description": "The ID of the order to update."
+      },
+      "new_street": {
+        "type": "string",
+        "required": true,
+        "param_type": "body",
+        "description": "The new street address."
+      },
+      "new_zip": {
+        "type": "string",
+        "required": true,
+        "param_type": "body",
+        "description": "The new zip code."
+      }
+    },
+    "response_config": {
+      "mode": "json",
+      "values": {
+        "confirmation_code": {
+          "type": "string",
+          "path": "data.update_log.id"
+        }
+      },
+      "template": "Address updated successfully. Reference code: {{confirmation_code}}.",
+      "on_error": "Unable to update address. The order might already be out for delivery: {{error}}"
+    }
+  },
+  "ACT-004": {
+    "name": "process_refund_request",
+    "description": "Initiates a refund for a specific transaction ID via the secure payment gateway.",
+    "type": "rpc_request",
+    "active": true,
+    "requires_confirmation": true,
+    "execution_config": {
+      "host": "payments.internal.shopeasy:50051",
+      "service": "PaymentService",
+      "method": "RefundTransaction",
+      "proto_file": "./protos/payment.proto",
+      "headers": {
+        "x-admin-key": "{{env.ADMIN_RPC_KEY}}"
+      }
+    },
+    "parameters": {
+      "transaction_id": {
+        "type": "string",
+        "required": true,
+        "param_type": "message_field",
+        "description": "The unique transaction ID found on the receipt."
+      },
+      "reason_code": {
+        "type": "string",
+        "required": true,
+        "default": "CUSTOMER_REQUEST",
+        "param_type": "message_field",
+        "description": "The reason for the refund.",
+        "enum": ["DEFECTIVE", "WRONG_ITEM", "CUSTOMER_REQUEST"]
+      }
+    },
+    "response_config": {
+      "mode": "json",
+      "values": {
+        "refund_status": {
+          "type": "string",
+          "path": "refund_response.status"
+        },
+        "amount": {
+          "type": "string",
+          "path": "refund_response.refunded_amount"
+        }
+      },
+      "template": "Refund initiated. Status: {{refund_status}}. Amount pending: ${{amount}}.",
+      "on_error": "Refund failed. The system returned: {{error}}"
+    }
+  },
+  "ACT-005": {
+    "title": "escalate_to_human",
+    "description": "Transfers the conversation to a human agent when the AI cannot resolve the issue.",
+    "type": "internal",
+    "active": true,
+    "requires_confirmation": true
+  },
+  "ACT-006": {
+    "title": "check_store_hours",
+    "description": "Checks the opening hours for physical retail locations.",
+    "type": "api_request",
+    "active": true,
+    "requires_confirmation": false,
+    "execution_config": {
+      "method": "GET",
+      "url": "/stores/hours",
+      "timeout": 3000
+    },
+    "parameters": {
+      "city": {
+        "type": "string",
+        "required": false,
+        "default": "New York",
+        "param_type": "query",
+        "description": "The city to check store hours for."
+      }
+    },
+    "response_config": {
+      "mode": "json",
+      "values": {
+        "open_time": {
+          "type": "string",
+          "path": "data.hours.open"
+        },
+        "close_time": {
+          "type": "string",
+          "path": "data.hours.close"
+        }
+      },
+      "template": "Stores in this city are open from {{open_time}} to {{close_time}}.",
+      "on_error": "Could not retrieve store hours at the moment."
+    }
+  }
+}

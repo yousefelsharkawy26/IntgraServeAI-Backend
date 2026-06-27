@@ -1,0 +1,16 @@
+[
+  {
+    "name": "bad_param",
+    "description": "Test bad param type",
+    "type": "internal",
+    "active": true,
+    "parameters": {
+      "x": {
+        "type": "invalid_type",
+        "required": true,
+        "param_type": "query",
+        "description": "Bad type"
+      }
+    }
+  }
+]
