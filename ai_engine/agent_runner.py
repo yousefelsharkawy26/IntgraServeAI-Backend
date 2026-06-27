@@ -175,7 +175,6 @@ class AgentRunner:
                         else:
                             tool = next((t for t in self.tools if t.name == tool_name), None)
                             if not tool:
-                                # P5.4: Use ExecutionException instead of generic ValueError
                                 raise ExecutionException(f"Tool '{tool_name}' is not recognized.")
 
                             result = await tool.ainvoke(tool_args)
@@ -229,6 +228,5 @@ class AgentRunner:
                 for tool_id, result_str in tool_results:
                     working_messages.append(ToolMessage(content=result_str, tool_call_id=tool_id))
         finally:
-            # P5.1: Clean up correlation ID context
             if token is not None:
                 set_correlation_id(None)

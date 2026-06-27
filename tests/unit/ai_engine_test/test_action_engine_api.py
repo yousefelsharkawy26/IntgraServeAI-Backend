@@ -2,7 +2,7 @@ import pytest
 
 from ai_engine.action_engine import ActionEngine
 from utils.exceptions import (
-    PathParamNotFound, BodyParamOnGetRequest
+    PathParamNotFound, BodyParamOnGetRequest, ExecutionException
 )
 
 
@@ -251,9 +251,10 @@ class TestApiRequestExecution:
         mock_requests.return_value.status_code = 404
         mock_requests.return_value.json.return_value = {"error": "not found"}
 
-        result = engine.execute_action_directly("err_test", {})
-        assert "Custom error:" in result
-        assert "not found" in result
+        with pytest.raises(ExecutionException):
+            result = engine.execute_action_directly("err_test", {})
+            assert "Custom error:" in result
+            assert "not found" in result
 
     def test_5xx_error_handling(self, minimal_agent_path, mock_requests):
         actions = [{
@@ -272,9 +273,9 @@ class TestApiRequestExecution:
 
         mock_requests.return_value.status_code = 500
         mock_requests.return_value.text = "Internal Server Error"
-
-        result = engine.execute_action_directly("err_test", {})
-        assert "Server error:" in result
+        with pytest.raises(ExecutionException):
+            result = engine.execute_action_directly("err_test", {})
+            assert "Server error:" in result
 
     def test_non_json_response(self, minimal_agent_path, mock_requests):
         actions = [{
@@ -311,9 +312,9 @@ class TestApiRequestExecution:
         engine = ActionEngine(minimal_agent_path, actions_list=actions)
 
         mock_requests.side_effect = Exception("Connection refused")
-
-        result = engine.execute_action_directly("conn_test", {})
-        assert "Connection failed:" in result
+        with pytest.raises(ExecutionException):
+            result = engine.execute_action_directly("conn_test", {})
+            assert "Connection failed:" in result
 
     @pytest.mark.parametrize("base_url,url,protocol,expected", [
         ("api.example.com", "/orders", "https", "https://api.example.com/orders"),
