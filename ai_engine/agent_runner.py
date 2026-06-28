@@ -58,7 +58,8 @@ class AgentRunner:
     async def stream_chat(
         self,
         messages: List[BaseMessage],
-        correlation_id: Optional[str] = None
+        correlation_id: Optional[str] = None,
+        cancel_token: Optional[asyncio.Event] = None
     ) -> AsyncGenerator[Dict[str, Any], None]:
         """
         Streams the AI's response token-by-token.
@@ -108,6 +109,10 @@ class AgentRunner:
                 ai_message_chunk = None
 
                 async for chunk in self.llm_with_tools.astream(working_messages):
+                    if cancel_token and cancel_token.is_set():
+                        logger.info("Generation aborted by user mid-stream.")
+                        break
+
                     if ai_message_chunk is None:
                         ai_message_chunk = chunk
                     else:

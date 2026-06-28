@@ -7,7 +7,7 @@ from typing import List, Dict, Any, Optional
 from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, delete
 
 from core.config import settings
 from core.database import AsyncSessionLocal
@@ -16,6 +16,7 @@ from models.ticket import TicketPriority, TicketType
 from services.ticket_service import TicketService
 from utils.schemas.ticket_schemas import ExternalTicketCreate
 from utils.ai_config_adapter import AIConfigAdapter
+from utils.exceptions import MessageNotEditableException, MessageNotFoundException
 
 from ai_engine.action_engine import ActionEngine
 from ai_engine.agent_runner import AgentRunner
@@ -94,6 +95,63 @@ class AIGatewayService:
             conv.is_active = False
             conv.ended_at = datetime.now(timezone.utc)
             await db.commit()
+
+    async def delete_conversation_cascade(self, db: AsyncSession, conversation_id: UUID) -> None:
+        """Hard deletes a conversation and all its associated messages and states."""
+        await db.execute(delete(ChatMessage).where(ChatMessage.chat_conversation_id == conversation_id))
+        await db.execute(delete(ChatConversation).where(ChatConversation.id == conversation_id))
+        await db.commit()
+
+    async def delete_message_cascade(self, db: AsyncSession, conversation_id: UUID, message_id: UUID) -> bool:
+        """
+        Deletes a message and all subsequent messages.
+        Returns True if the entire chat was deleted (because it was the first message), False otherwise.
+        """
+        result = await db.execute(
+            select(ChatMessage).where(ChatMessage.id == message_id, ChatMessage.chat_conversation_id == conversation_id)
+        )
+        target = result.scalar_one_or_none()
+        if not target:
+            raise MessageNotFoundException()
+        if target.sender_type != SenderType.CUSTOMER:
+            raise MessageNotEditableException("Only user messages can be deleted.")
+
+        # Check if it is the very first message
+        first_msg = await db.execute(
+            select(ChatMessage).where(ChatMessage.chat_conversation_id == conversation_id).order_by(ChatMessage.created_at.asc()).limit(1)
+        )
+        first = first_msg.scalar_one_or_none()
+
+        if first and first.id == target.id:
+            await self.delete_conversation_cascade(db, conversation_id)
+            return True
+
+        # Cascade delete target and everything after it
+        await db.execute(
+            delete(ChatMessage)
+            .where(ChatMessage.chat_conversation_id == conversation_id, ChatMessage.created_at >= target.created_at)
+        )
+        await db.commit()
+        return False
+
+    async def edit_message_cascade(self, db: AsyncSession, conversation_id: UUID, message_id: UUID, new_text: str) -> None:
+        """Edits a message and deletes all subsequent messages to reset the context."""
+        result = await db.execute(
+            select(ChatMessage).where(ChatMessage.id == message_id, ChatMessage.chat_conversation_id == conversation_id)
+        )
+        target = result.scalar_one_or_none()
+        if not target:
+            raise MessageNotFoundException()
+        if target.sender_type != SenderType.CUSTOMER:
+            raise MessageNotEditableException("Only user messages can be edited.")
+
+        # Delete everything strictly AFTER the edited message
+        await db.execute(
+            delete(ChatMessage)
+            .where(ChatMessage.chat_conversation_id == conversation_id, ChatMessage.created_at > target.created_at)
+        )
+        target.message_text = new_text
+        await db.commit()
 
     # ==================== Message Persistence ====================
 

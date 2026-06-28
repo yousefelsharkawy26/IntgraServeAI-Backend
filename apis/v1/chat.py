@@ -1,25 +1,41 @@
 # apis/v1/chat.py
 
 import logging
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect, status
+import asyncio
+from uuid import UUID
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect, status, Depends, HTTPException
+
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.database import AsyncSessionLocal
+from core.database import AsyncSessionLocal, get_db
 from services.ai_gateway_service import AIGatewayService
 from langchain_core.messages import HumanMessage, ToolMessage
+from utils.exceptions import MessageNotFoundException, MessageNotEditableException
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+@router.delete("/{conversation_id}")
+async def delete_chat(conversation_id: UUID, db: AsyncSession = Depends(get_db)):
+    gateway = AIGatewayService()
+    await gateway.delete_conversation_cascade(db, conversation_id)
+    return {"message": "Chat deleted"}
+
+@router.delete("/{conversation_id}/messages/{message_id}")
+async def delete_message(conversation_id: UUID, message_id: UUID, db: AsyncSession = Depends(get_db)):
+    gateway = AIGatewayService()
+    chat_deleted = await gateway.delete_message_cascade(db, conversation_id, message_id)
+    return {"message": "Message deleted", "chat_deleted": chat_deleted}
 
 
 @router.websocket("/ws")
 async def chat_websocket(websocket: WebSocket):
     await websocket.accept()
     gateway = AIGatewayService()
-    session_id = None
-    customer_email = None
-    customer_name = None
-    conversation_id = None
+    
+    session_id, customer_email, customer_name, conversation_id = None, None, None, None
+    active_generation_task = None
+    cancel_token = asyncio.Event()
 
     try:
         # -------- Handshake --------
@@ -29,135 +45,102 @@ async def chat_websocket(websocket: WebSocket):
         customer_name = init_msg.get("customer_name", "Customer")
 
         if not session_id or not customer_email:
-            await websocket.send_json({
-                "type": "error",
-                "message": "session_id and customer_email are required"
-            })
             await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
             return
 
         async with AsyncSessionLocal() as db:
-            conversation = await gateway.get_or_create_conversation(
-                db, session_id, customer_email, customer_name
-            )
+            conversation = await gateway.get_or_create_conversation(db, session_id, customer_email, customer_name)
             conversation_id = conversation.id
-            messages = await gateway.load_message_history(db, conversation_id)
 
-        await websocket.send_json({
-            "type": "connected",
-            "conversation_id": str(conversation_id),
-            "session_id": session_id
-        })
+        await websocket.send_json({"type": "connected", "conversation_id": str(conversation_id)})
 
-        # -------- Chat Loop --------
+        # --- BACKGROUND GENERATION WORKER ---
+        async def run_ai_stream(messages_state):
+            runner = gateway.create_runner(customer_email, customer_name)
+            try:
+                async for event in runner.stream_chat(messages_state, cancel_token=cancel_token):
+                    await websocket.send_json(event)
+                    
+                    if event["type"] == "pause":
+                        async with AsyncSessionLocal() as db:
+                            await gateway.save_pending_state(db, conversation_id, messages_state, event)
+                        break
+
+                    elif event["type"] == "done":
+                        ai_text = gateway.extract_ai_text(messages_state)
+                        async with AsyncSessionLocal() as db:
+                            await gateway.save_message(db, conversation_id, "AI", ai_text)
+                            await gateway.clear_pending_state(db, conversation_id)
+                            
+            except Exception as e:
+                logger.error(f"Stream task error: {e}")
+                await websocket.send_json({"type": "error", "message": "Generation error."})
+
+        # -------- Non-Blocking Chat Loop --------
         while True:
             msg = await websocket.receive_json()
             msg_type = msg.get("type")
 
-            if msg_type == "chat":
+            if msg_type == "chat" or msg_type == "generate":
+                # Cancel existing stream if user types while AI is generating
+                if active_generation_task and not active_generation_task.done():
+                    cancel_token.set()
+                cancel_token.clear()
+
                 user_content = msg.get("content", "").strip()
-                if not user_content:
-                    await websocket.send_json({
-                        "type": "error",
-                        "message": "content is required"
-                    })
-                    continue
-
-                messages.append(HumanMessage(content=user_content))
-
                 async with AsyncSessionLocal() as db:
-                    await gateway.save_message(
-                        db, conversation_id, "CUSTOMER", user_content
-                    )
+                    if user_content:
+                        await gateway.save_message(db, conversation_id, "CUSTOMER", user_content)
+                    messages = await gateway.load_message_history(db, conversation_id)
 
+                active_generation_task = asyncio.create_task(run_ai_stream(messages))
+
+            elif msg_type == "stop":
+                if active_generation_task and not active_generation_task.done():
+                    cancel_token.set()
+                await websocket.send_json({"type": "stopped"})
+
+            elif msg_type == "edit":
+                # Edit triggers cascade delete + text update + auto generation resume
+                if active_generation_task and not active_generation_task.done():
+                    cancel_token.set()
+                cancel_token.clear()
+
+                msg_id = msg.get("message_id")
+                new_content = msg.get("content")
                 
-                runner = gateway.create_runner(customer_email, customer_name)
-
-                paused = False
-                pause_data = None
-
-                try:
-                    async for event in runner.stream_chat(messages):
-                        await websocket.send_json(event)
-
-                        if event["type"] == "pause":
-                            paused = True
-                            pause_data = event
-                            async with AsyncSessionLocal() as db:
-                                await gateway.save_pending_state(
-                                    db, conversation_id, messages, pause_data
-                                )
-                            break
-                        elif event["type"] == "done":
-                            ai_text = gateway.extract_ai_text(messages)
-                            async with AsyncSessionLocal() as db:
-                                await gateway.save_message(
-                                    db, conversation_id, "AI", ai_text
-                                )
-                                await gateway.clear_pending_state(db, conversation_id)
-                except Exception as e:
-                    logger.error(f"Stream error: {e}", exc_info=True)
-                    await websocket.send_json({
-                        "type": "error",
-                        "message": "An error occurred while processing your message"
-                    })
+                async with AsyncSessionLocal() as db:
+                    await gateway.edit_message_cascade(db, conversation_id, UUID(msg_id), new_content)
+                    messages = await gateway.load_message_history(db, conversation_id)
+                
+                await websocket.send_json({"type": "edit_successful"})
+                active_generation_task = asyncio.create_task(run_ai_stream(messages))
 
             elif msg_type == "confirm":
                 async with AsyncSessionLocal() as db:
                     state = await gateway.load_pending_state(db, conversation_id)
 
                 if not state:
-                    await websocket.send_json({
-                        "type": "error",
-                        "message": "No pending action to confirm"
-                    })
+                    await websocket.send_json({"type": "error", "message": "No pending action"})
                     continue
 
-                messages = state["messages"]
-                pause_data = state["pause_data"]
-                approved = msg.get("approved", False)
+                cancel_token.clear()
+                msgs, p_data, approved = state["messages"], state["pause_data"], msg.get("approved", False)
 
                 if approved:
-                    async with AsyncSessionLocal() as db:
-                        result = await gateway.execute_paused_action(
-                            pause_data, db, customer_email, customer_name
-                        )
-                    messages.append(ToolMessage(
-                        content=result,
-                        tool_call_id=pause_data.get("tool_call_id", "unknown")
-                    ))
+                    result = await gateway.execute_paused_action(p_data, customer_email, customer_name)
+                    msgs.append(ToolMessage(content=result, tool_call_id=p_data.get("tool_call_id", "unknown")))
                 else:
-                    denial = (
-                        f"User denied action: {pause_data.get('action_name', 'unknown')}."
-                    )
-                    messages.append(ToolMessage(
-                        content=denial,
-                        tool_call_id=pause_data.get("tool_call_id", "unknown")
-                    ))
+                    msgs.append(ToolMessage(content=f"User denied action.", tool_call_id=p_data.get("tool_call_id", "unknown")))
 
                 async with AsyncSessionLocal() as db:
                     await gateway.clear_pending_state(db, conversation_id)
 
-                
-                runner = gateway.create_runner(customer_email, customer_name)
-
-                try:
-                    async for event in runner.stream_chat(messages):
-                        await websocket.send_json(event)
-                        if event["type"] == "done":
-                            ai_text = gateway.extract_ai_text(messages)
-                            async with AsyncSessionLocal() as db:
-                                await gateway.save_message(
-                                    db, conversation_id, "AI", ai_text
-                                )
-                except Exception as e:
-                    logger.error(f"Resume stream error: {e}", exc_info=True)
-                    await websocket.send_json({
-                        "type": "error",
-                        "message": "An error occurred while resuming"
-                    })
+                active_generation_task = asyncio.create_task(run_ai_stream(msgs))
 
             elif msg_type == "end":
+                if active_generation_task and not active_generation_task.done():
+                    cancel_token.set()
                 async with AsyncSessionLocal() as db:
                     await gateway.end_conversation(db, conversation_id)
                 await websocket.send_json({"type": "ended"})
@@ -171,16 +154,5 @@ async def chat_websocket(websocket: WebSocket):
                 })
 
     except WebSocketDisconnect:
-        logger.info(
-            f"Client disconnected: session={session_id or 'unknown'}"
-        )
-    except Exception as e:
-        logger.error(f"WebSocket fatal error: {e}", exc_info=True)
-        try:
-            await websocket.send_json({
-                "type": "error",
-                "message": "Internal server error"
-            })
-            await websocket.close()
-        except Exception:
-            pass
+        if active_generation_task and not active_generation_task.done():
+            cancel_token.set()

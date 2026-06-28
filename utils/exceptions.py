@@ -249,6 +249,18 @@ class ServerException(BaseAPIException):
             message=message
         )
 
+class ChatNotFoundException(NotFoundException):
+    def __init__(self, message: str = "Conversation not found"):
+        super().__init__(message=message)
+
+class MessageNotFoundException(NotFoundException):
+    def __init__(self, message: str = "Message not found"):
+        super().__init__(message=message)
+
+class MessageNotEditableException(BadRequestException):
+    def __init__(self, message: str = "Only customer messages can be edited or deleted"):
+        super().__init__(message=message)
+
 
 # --- HTTP Action Parsing Errors (HTTP 422) ---
 
