@@ -1,0 +1,30 @@
+[
+  {
+    "name": "get_status",
+    "description": "Get system status",
+    "type": "api_request",
+    "active": true,
+    "requires_confirmation": false,
+    "execution_config": {
+      "method": "GET",
+      "url": "/status",
+      "timeout": 5000
+    },
+    "parameters": {
+      "detail": {
+        "type": "string",
+        "required": false,
+        "default": "summary",
+        "param_type": "query",
+        "description": "Level of detail"
+      }
+    }
+  },
+  {
+    "name": "internal_notify",
+    "description": "Send internal notification",
+    "type": "internal",
+    "active": true,
+    "requires_confirmation": false
+  }
+]

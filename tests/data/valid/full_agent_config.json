@@ -1,0 +1,65 @@
+{
+  "system_context": {
+    "title": "ShopEasy Customer Support Agent",
+    "description": "You are the primary AI support agent for ShopEasy, a leading online retailer.",
+    "version": "2.1.0",
+    "tone": "Warm, professional, and efficient."
+  },
+  "global_defaults": {
+    "api_request": {
+      "protocol": "https",
+      "base_url": "api.shopeasy.com/v1",
+      "timeout": 10000,
+      "headers": {
+        "Content-Type": "application/json",
+        "Authorization": "Bearer test-api-key",
+        "User-Agent": "ShopEasy-AI-Agent/v2.1"
+      },
+      "on_error": "I apologize, but I am currently unable to access that part of the ShopEasy system."
+    },
+    "rpc_request": {
+      "protocol": "grpc",
+      "on_error": "I apologize, but I am currently unable to access that part of the ShopEasy system."
+    },
+    "vector_query": {
+      "connector": "postgres",
+      "connection_string": "postgresql://localhost:5432/test",
+      "embedding_config": {
+        "location": "local",
+        "provider": "ollama",
+        "model_name": "nomic-embed-text",
+        "dimensions": 768,
+        "rate_limit_delay_seconds": 0,
+        "api_key": "test-ollama-key",
+        "local_loading_params": {
+          "base_url": "http://localhost:11434/v1",
+          "gguf_file": "nomic-embed-text-v1.5.f16.gguf",
+          "context_window": 8192,
+          "gpu_layers": 35,
+          "quantization": "f16"
+        }
+      },
+      "on_error": "I apologize, but I am currently unable to access that part of the ShopEasy system."
+    },
+    "internal": {
+      "on_error": "I apologize, but I am currently unable to access that part of the ShopEasy system."
+    }
+  },
+  "llm_config": {
+    "location": "remote",
+    "provider": "groq",
+    "model_name": "llama-3.3-70b-versatile",
+    "rate_limit_delay_seconds": 0,
+    "temperature": 0.1,
+    "max_tokens": 2048,
+    "api_key": "test-groq-key",
+    "local_loading_params": {
+      "base_url": "http://localhost:11434/v1",
+      "gguf_file": "Qwen3.5-9B.Q4_K_S.gguf",
+      "context_window": 16384,
+      "gpu_layers": 35,
+      "quantization": "int4"
+    },
+    "system_prompt_template": "IDENTITY:\n{{title}}\n\nROLE:\n{{description}}\n\nTONE:\n{{tone}}\n\nCONSTRAINTS:\n- Do not make up order numbers.\n- Always ask for confirmation before modifying data.\n- If a tool fails, inform the user clearly."
+  }
+}

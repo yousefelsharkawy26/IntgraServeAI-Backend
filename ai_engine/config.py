@@ -210,21 +210,21 @@ class ApiRequestDefaults(BaseModel):
     base_url: str = ""
     timeout: int = 10000
     headers: Dict[str, str] = {}
-    on_error: str = "System Error"
+    on_error: str = "System Error: {{error}}"
 
 class RpcRequestDefaults(BaseModel):
     protocol: str = "grpc"
     headers: Dict[str, str] = {}
-    on_error: str = "System Error"
+    on_error: str = "System Error: {{error}}"
 
 class VectorQueryDefaults(BaseModel):
     connector: str = "postgres"
     connection_string: str = ""
     embedding_config: Optional[EmbeddingConfig] = None
-    on_error: str = "System Error"
+    on_error: str = "System Error: {{error}}"
 
 class InternalDefaults(BaseModel):
-    on_error: str = "System Error"
+    on_error: str = "System Error: {{error}}"
 
 class GlobalDefaults(BaseModel):
     api_request: Optional[ApiRequestDefaults] = Field(default_factory=ApiRequestDefaults)

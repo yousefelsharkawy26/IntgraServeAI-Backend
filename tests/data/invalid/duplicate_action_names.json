@@ -1,0 +1,14 @@
+[
+  {
+    "name": "get_status",
+    "description": "First",
+    "type": "internal",
+    "active": true
+  },
+  {
+    "name": "get_status",
+    "description": "Second",
+    "type": "internal",
+    "active": true
+  }
+]

@@ -22,7 +22,7 @@ Markers: integration, slow
 import pytest
 
 from ai_engine.action_engine import ActionEngine
-from utils.exceptions import BodyParamOnGetRequest, PathParamNotFound
+from utils.exceptions import BodyParamOnGetRequest, ExecutionException
 
 pytestmark = [pytest.mark.integration, pytest.mark.slow]
 
@@ -330,8 +330,9 @@ class TestTimeout:
             }
         }]
         engine = ActionEngine(api_agent_config, actions_list=actions)
-        result = engine.execute_action_directly("slow_test", {})
-        assert "Timed out" in result
+        with pytest.raises(ExecutionException):
+            result = engine.execute_action_directly("slow_test", {})
+            assert "Timed out" in result
 
 
 class TestErrorHandling:
@@ -356,8 +357,9 @@ class TestErrorHandling:
             }
         }]
         engine = ActionEngine(api_agent_config, actions_list=actions)
-        result = engine.execute_action_directly("err_404", {})
-        assert "Not found" in result
+        with pytest.raises(ExecutionException):
+            result = engine.execute_action_directly("err_404", {})
+            assert "Not found" in result
 
     def test_500_with_template(self, api_agent_config, http_server_base_url):
         actions = [{
@@ -376,8 +378,9 @@ class TestErrorHandling:
             }
         }]
         engine = ActionEngine(api_agent_config, actions_list=actions)
-        result = engine.execute_action_directly("err_500", {})
-        assert "Server error" in result
+        with pytest.raises(ExecutionException):
+            result = engine.execute_action_directly("err_500", {})
+            assert "Server error" in result
 
     def test_non_json_response(self, api_agent_config, http_server_base_url):
         actions = [{
@@ -412,6 +415,9 @@ class TestErrorHandling:
                 "on_error": "Connection failed: {{error}}"
             }
         }]
+
         engine = ActionEngine(api_agent_config, actions_list=actions)
-        result = engine.execute_action_directly("conn_fail", {})
-        assert "Connection failed" in result
+
+        with pytest.raises(ExecutionException):
+            result = engine.execute_action_directly("conn_fail", {})
+            assert "Connection failed" in result

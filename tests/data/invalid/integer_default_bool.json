@@ -1,0 +1,17 @@
+[
+  {
+    "name": "int_bool",
+    "description": "Integer with bool default",
+    "type": "internal",
+    "active": true,
+    "parameters": {
+      "count": {
+        "type": "integer",
+        "required": false,
+        "default": true,
+        "param_type": "query",
+        "description": "Count"
+      }
+    }
+  }
+]

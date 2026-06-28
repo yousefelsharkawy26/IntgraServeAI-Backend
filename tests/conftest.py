@@ -98,3 +98,5 @@ def mock_get_vector_driver():
 def mock_grpc_insecure_channel():
     with patch("ai_engine.action_engine.grpc.insecure_channel") as m:
         yield m
+
+pytest_plugins = ["unit.ai_engine_test.fixtures.mock_llm"]

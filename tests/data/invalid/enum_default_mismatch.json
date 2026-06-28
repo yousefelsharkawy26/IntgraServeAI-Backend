@@ -1,0 +1,18 @@
+[
+  {
+    "name": "enum_mismatch",
+    "description": "Enum mismatch",
+    "type": "internal",
+    "active": true,
+    "parameters": {
+      "status": {
+        "type": "string",
+        "required": false,
+        "default": "C",
+        "param_type": "query",
+        "description": "Status",
+        "enum": ["A", "B"]
+      }
+    }
+  }
+]

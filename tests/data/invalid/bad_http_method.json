@@ -1,0 +1,12 @@
+[
+  {
+    "name": "bad_method",
+    "description": "Test bad method",
+    "type": "api_request",
+    "active": true,
+    "execution_config": {
+      "method": "INVALID",
+      "url": "/test"
+    }
+  }
+]

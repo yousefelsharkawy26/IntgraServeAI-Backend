@@ -361,17 +361,19 @@ class ActionEngine:
 
             if resp.status_code >= 400:
                 logger.error(f"API returned {resp.status_code}: {data}")
+                data_str = str(data)
                 if action.response_config and action.response_config.on_error:
-                    return action.response_config.on_error.replace("{{error}}", str(data))
-                return f"Error {resp.status_code}: {str(data)}"
+                    raise ExecutionException(action.response_config.on_error.replace("{{error}}", data_str))
+                raise ExecutionException(f"Error {resp.status_code}: {str(data)}")
 
             return self._parse_response(data, action.response_config)
 
         except Exception as e:
             logger.exception("API Request Failed")
+            err_msg = str(e)
             if action.response_config and action.response_config.on_error:
-                return action.response_config.on_error.replace("{{error}}", str(e))
-            return str(e)
+                raise ExecutionException(action.response_config.on_error.replace("{{error}}", err_msg))
+            raise ExecutionException(f"API Request Failed: {err_msg}") from e
 
     def _execute_internal(self, action: ActionDefinition, **kwargs):
         return (
@@ -394,6 +396,7 @@ class ActionEngine:
                 query_vector = generate_embedding(topic_text, config.embedding_config)
                 driver = get_vector_driver(config.connector)
                 search_results = driver.search(query_vector, config)
+                return self._parse_response({"data": search_results}, action.response_config)
             
         except UnsupportedDatabaseDriver as e:
             logger.error(f"Configuration Error: {e}")
@@ -408,9 +411,7 @@ class ActionEngine:
             logger.error(f"Vector search failed: {e}")
             if action.response_config and action.response_config.on_error:
                 return action.response_config.on_error.replace("{{error}}", str(e))
-            return f"Vector Database Error: {str(e)}"
-        
-        return self._parse_response({"data": search_results}, action.response_config)
+            raise ExecutionException(f"Vector Search Failed: {str(e)}") from e
 
     def _execute_rpc(self, action: ActionDefinition, **kwargs):
         import grpc
@@ -471,7 +472,7 @@ class ActionEngine:
             logger.error(f"gRPC Error: Status {e.code()} - {e.details()}")
             if action.response_config and action.response_config.on_error:
                 return action.response_config.on_error.replace("{{error}}", e.details())
-            return f"gRPC Action Failed: {e.details()}"
+            raise ExecutionException(f"gRPC Action Failed: {str(e)}") from e
         finally:
             if channel is not None:
                 channel.close()
@@ -571,12 +572,13 @@ class ActionEngine:
         ctx = self.agent_config.system_context
         if self.agent_config.llm_config:
             tmpl = getattr(self.agent_config.llm_config, "system_prompt_template", "")
-            prompt = (
-                tmpl.replace("{{title}}", ctx.title)
-                .replace("{{description}}", ctx.description)
-                .replace("{{tone}}", ctx.tone)
-            )
-            return prompt
+            if tmpl:
+                prompt = (
+                    tmpl.replace("{{title}}", ctx.title)
+                    .replace("{{description}}", ctx.description)
+                    .replace("{{tone}}", ctx.tone)
+                )
+                return prompt
         return f"System: {ctx.title}. {ctx.description}"
 
     def execute_action_directly(

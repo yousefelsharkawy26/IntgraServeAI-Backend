@@ -1,0 +1,9 @@
+{
+  "system_context": {
+    "title": "Test Agent",
+    "description": "A minimal test agent for unit testing.",
+    "version": "1.0.0",
+    "tone": "neutral"
+  },
+  "global_defaults": {}
+}
