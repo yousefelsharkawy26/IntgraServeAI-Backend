@@ -6,7 +6,8 @@ import json
 import re
 import hashlib
 import logging
-import requests
+import httpx
+import grpc
 from typing import List, Dict, Any, Type, Optional
 from pydantic import create_model, Field, BaseModel, ValidationError, model_validator
 from jsonpath_ng import parse as jsonpath_parse
@@ -289,7 +290,6 @@ class ActionEngine:
             f"PAUSE_FOR_HUMAN: {action.name}", action.name, kwargs
         )
 
-    # P5.3: Sanitize path parameter values to prevent path traversal and injection
     def _sanitize_path_param(self, name: str, value: Any) -> str:
         """Sanitize a path parameter value to prevent path traversal and injection.
         
@@ -305,7 +305,7 @@ class ActionEngine:
                 )
         return str_value
 
-    def _execute_api_request(self, action: ActionDefinition, **kwargs):
+    async def _execute_api_request(self, action: ActionDefinition, **kwargs):
         config = action.execution_config
         url = config.url
 
@@ -315,7 +315,6 @@ class ActionEngine:
         for k, v in path_params.items():
             if f"{{{k}}}" not in url:
                 raise PathParamNotFound(f"Path parameter {{{k}}} missing in URL {url}")
-            # P5.3: Sanitize path parameter before substitution
             sanitized = self._sanitize_path_param(k, v)
             url = url.replace(f"{{{k}}}", sanitized)
 
@@ -335,52 +334,54 @@ class ActionEngine:
         if config.method == "GET" and body_params:
             raise BodyParamOnGetRequest("Cannot send body params on GET")
 
-        logger.info(f"Executing HTTP {config.method} {url}")
+        logger.info(f"Executing Async HTTP {config.method} {url}")
 
-        timeout_seconds = (config.timeout or 10000) / 1000
-
+        timeout_seconds = (config.timeout or 10000) / 1000.0
         request_auth = None
-        if config.auth:
-            if "username" in config.auth and "password" in config.auth:
-                request_auth = (config.auth["username"], config.auth["password"])
+        if config.auth and "username" in config.auth and "password" in config.auth:
+            request_auth = (config.auth["username"], config.auth["password"])
 
         try:
-            resp = requests.request(
-                method=config.method,
-                url=url,
-                headers=config.headers,
-                params=query_params,
-                json=body_params if body_params else None,
-                timeout=timeout_seconds,
-                auth=request_auth,
-            )
-            try:
-                data = resp.json()
-            except:
-                data = resp.text
+            async with httpx.AsyncClient(timeout=timeout_seconds, auth=request_auth) as client:
+                req_kwargs = {
+                    "method": config.method,
+                    "url": url,
+                    "headers": config.headers,
+                    "params": query_params,
+                }
+                if body_params:
+                    req_kwargs["json"] = body_params
 
-            if resp.status_code >= 400:
-                logger.error(f"API returned {resp.status_code}: {data}")
-                data_str = str(data)
-                if action.response_config and action.response_config.on_error:
-                    raise ExecutionException(action.response_config.on_error.replace("{{error}}", data_str))
-                raise ExecutionException(f"Error {resp.status_code}: {str(data)}")
+                resp = await client.request(**req_kwargs)
+                
+                try:
+                    data = resp.json()
+                except ValueError:
+                    data = resp.text
 
-            return self._parse_response(data, action.response_config)
+                # Raise HTTPStatusError for 4xx/5xx to be handled below
+                resp.raise_for_status()
+                return self._parse_response(data, action.response_config)
 
-        except Exception as e:
+        except httpx.HTTPStatusError as e:
+            logger.error(f"API returned {e.response.status_code}: {e.response.text}")
+            err_str = str(data) if 'data' in locals() else e.response.text
+            if action.response_config and action.response_config.on_error:
+                raise ExecutionException(action.response_config.on_error.replace("{{error}}", err_str))
+            raise ExecutionException(f"Error {e.response.status_code}: {err_str}")
+
+        except httpx.RequestError as e:
             logger.exception("API Request Failed")
             err_msg = str(e)
             if action.response_config and action.response_config.on_error:
                 raise ExecutionException(action.response_config.on_error.replace("{{error}}", err_msg))
             raise ExecutionException(f"API Request Failed: {err_msg}") from e
 
-    def _execute_internal(self, action: ActionDefinition, **kwargs):
-        return (
-            f"Internal Action '{action.name}' processed successfully. Params: {kwargs}"
-        )
 
-    def _execute_vector(self, action: ActionDefinition, **kwargs):
+    async def _execute_internal(self, action: ActionDefinition, **kwargs):
+        return f"Internal Action '{action.name}' processed successfully. Params: {kwargs}"
+
+    async def _execute_vector(self, action: ActionDefinition, **kwargs):
         config = action.execution_config
         
         topic_key = next((k for k, v in action.parameters.items() if v.param_type == "vector"), None)
@@ -388,7 +389,6 @@ class ActionEngine:
             raise VectorSearchError("Vector query requires a parameter with param_type='vector'.")
             
         topic_text = kwargs[topic_key]
-        
         logger.info(f"Executing Vector Search for topic: '{topic_text}'")
 
         try:
@@ -398,14 +398,8 @@ class ActionEngine:
                 search_results = driver.search(query_vector, config)
                 return self._parse_response({"data": search_results}, action.response_config)
             
-        except UnsupportedDatabaseDriver as e:
-            logger.error(f"Configuration Error: {e}")
-            raise
-        except EmbeddingGenerationError as e:
-            logger.error(f"Embedding generation failed: {e}")
-            raise
-        except VectorSearchError as e:
-            logger.error(f"Vector search failed: {e}")
+        except (UnsupportedDatabaseDriver, EmbeddingGenerationError, VectorSearchError) as e:
+            logger.error(f"Vector search exception: {e}")
             raise
         except Exception as e:
             logger.error(f"Vector search failed: {e}")
@@ -413,12 +407,10 @@ class ActionEngine:
                 return action.response_config.on_error.replace("{{error}}", str(e))
             raise ExecutionException(f"Vector Search Failed: {str(e)}") from e
 
-    def _execute_rpc(self, action: ActionDefinition, **kwargs):
-        import grpc
+    async def _execute_rpc(self, action: ActionDefinition, **kwargs):
         from google.protobuf.json_format import MessageToDict
         
         config = action.execution_config
-        
         if config.proto_file not in self._grpc_module_cache:
             self._grpc_module_cache[config.proto_file] = self._compile_and_load_proto(config.proto_file)
             
@@ -452,34 +444,29 @@ class ActionEngine:
         if config.headers:
             metadata = tuple((k.lower(), str(v)) for k, v in config.headers.items())
 
-        logger.info(f"Executing gRPC {config.host}/{config.service}/{config.method}")
+        logger.info(f"Executing Async gRPC {config.host}/{config.service}/{config.method}")
+        timeout_seconds = (config.timeout or 10000) / 1000.0
 
-        timeout_seconds = (config.timeout or 10000) / 1000
-
-        channel = None
         try:
-            channel = grpc.insecure_channel(config.host)
-            stub_class = getattr(pb2_grpc, stub_class_name)
-            stub = stub_class(channel)
-            rpc_method = getattr(stub, config.method)
+            async with grpc.aio.insecure_channel(config.host) as channel:
+                stub_class = getattr(pb2_grpc, stub_class_name)
+                stub = stub_class(channel)
+                rpc_method = getattr(stub, config.method)
 
-            response_obj = rpc_method(
-                request_obj, 
-                metadata=metadata, 
-                timeout=timeout_seconds
-            )
+                response_obj = await rpc_method(
+                    request_obj, 
+                    metadata=metadata, 
+                    timeout=timeout_seconds
+                )
         except grpc.RpcError as e:
             logger.error(f"gRPC Error: Status {e.code()} - {e.details()}")
             if action.response_config and action.response_config.on_error:
                 return action.response_config.on_error.replace("{{error}}", e.details())
-            raise ExecutionException(f"gRPC Action Failed: {str(e)}") from e
-        finally:
-            if channel is not None:
-                channel.close()
+            raise ExecutionException(f"gRPC Action Failed: {e.details()}") from e
 
         response_dict = MessageToDict(response_obj, preserving_proto_field_name=True)
-        
         return self._parse_response(response_dict, action.response_config)
+
 
     def _resolve_proto_message_class(self, pb2_module, descriptor):
         if descriptor.containing_type is None:
@@ -540,22 +527,25 @@ class ActionEngine:
                 continue
 
             def make_runner(act: ActionDefinition):
-                def runner(**kwargs):
+                def sync_runner(**kwargs):
+                    raise NotImplementedError(f"Action {act.name} is entirely asynchronous.")
+
+                async def async_runner(**kwargs):
                     self._gate_confirmation(act, kwargs)
 
                     if act.type == "api_request":
-                        return self._execute_api_request(act, **kwargs)
+                        return await self._execute_api_request(act, **kwargs)
                     elif act.type == "internal":
-                        return self._execute_internal(act, **kwargs)
+                        return await self._execute_internal(act, **kwargs)
                     elif act.type == "vector_query":
-                        return self._execute_vector(act, **kwargs)
+                        return await self._execute_vector(act, **kwargs)
                     elif act.type == "rpc_request":
-                        return self._execute_rpc(act, **kwargs)
+                        return await self._execute_rpc(act, **kwargs)
                     else:
                         return "Action type not implemented in engine."
 
-                return runner
-
+                return sync_runner, async_runner
+            
             args_schema = self._create_args_schema(action.parameters)
 
             tool = StructuredTool.from_function(
@@ -581,7 +571,7 @@ class ActionEngine:
                 return prompt
         return f"System: {ctx.title}. {ctx.description}"
 
-    def execute_action_directly(
+    async def execute_action_directly(
         self,
         action_name: str,
         kwargs: dict,
@@ -609,13 +599,13 @@ class ActionEngine:
 
         try:
             if act.type == "api_request":
-                return self._execute_api_request(act, **kwargs)
+                return await self._execute_api_request(act, **kwargs)
             elif act.type == "internal":
-                return self._execute_internal(act, **kwargs)
+                return await self._execute_internal(act, **kwargs)
             elif act.type == "vector_query":
-                return self._execute_vector(act, **kwargs)
+                return await self._execute_vector(act, **kwargs)
             elif act.type == "rpc_request":
-                return self._execute_rpc(act, **kwargs)
+                return await self._execute_rpc(act, **kwargs)
             else:
                 return "Action type not implemented in engine."
         except ActionEngineException:

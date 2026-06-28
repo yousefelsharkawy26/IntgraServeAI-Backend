@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.database import AsyncSessionLocal
 from services.ai_gateway_service import AIGatewayService
-from langchain_core.messages import HumanMessage
+from langchain_core.messages import HumanMessage, ToolMessage
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -17,6 +17,9 @@ async def chat_websocket(websocket: WebSocket):
     await websocket.accept()
     gateway = AIGatewayService()
     session_id = None
+    customer_email = None
+    customer_name = None
+    conversation_id = None
 
     try:
         # -------- Handshake --------
@@ -37,11 +40,12 @@ async def chat_websocket(websocket: WebSocket):
             conversation = await gateway.get_or_create_conversation(
                 db, session_id, customer_email, customer_name
             )
-            messages = await gateway.load_message_history(db, conversation.id)
+            conversation_id = conversation.id
+            messages = await gateway.load_message_history(db, conversation_id)
 
         await websocket.send_json({
             "type": "connected",
-            "conversation_id": str(conversation.id),
+            "conversation_id": str(conversation_id),
             "session_id": session_id
         })
 
@@ -63,11 +67,11 @@ async def chat_websocket(websocket: WebSocket):
 
                 async with AsyncSessionLocal() as db:
                     await gateway.save_message(
-                        db, conversation.id, "CUSTOMER", user_content
+                        db, conversation_id, "CUSTOMER", user_content
                     )
 
-                async with AsyncSessionLocal() as db:
-                    runner = gateway.create_runner(db, customer_email, customer_name)
+                
+                runner = gateway.create_runner(customer_email, customer_name)
 
                 paused = False
                 pause_data = None
@@ -81,16 +85,16 @@ async def chat_websocket(websocket: WebSocket):
                             pause_data = event
                             async with AsyncSessionLocal() as db:
                                 await gateway.save_pending_state(
-                                    db, conversation.id, messages, pause_data
+                                    db, conversation_id, messages, pause_data
                                 )
                             break
                         elif event["type"] == "done":
                             ai_text = gateway.extract_ai_text(messages)
                             async with AsyncSessionLocal() as db:
                                 await gateway.save_message(
-                                    db, conversation.id, "AI", ai_text
+                                    db, conversation_id, "AI", ai_text
                                 )
-                                await gateway.clear_pending_state(db, conversation.id)
+                                await gateway.clear_pending_state(db, conversation_id)
                 except Exception as e:
                     logger.error(f"Stream error: {e}", exc_info=True)
                     await websocket.send_json({
@@ -100,7 +104,7 @@ async def chat_websocket(websocket: WebSocket):
 
             elif msg_type == "confirm":
                 async with AsyncSessionLocal() as db:
-                    state = await gateway.load_pending_state(db, conversation.id)
+                    state = await gateway.load_pending_state(db, conversation_id)
 
                 if not state:
                     await websocket.send_json({
@@ -132,10 +136,10 @@ async def chat_websocket(websocket: WebSocket):
                     ))
 
                 async with AsyncSessionLocal() as db:
-                    await gateway.clear_pending_state(db, conversation.id)
+                    await gateway.clear_pending_state(db, conversation_id)
 
-                async with AsyncSessionLocal() as db:
-                    runner = gateway.create_runner(db, customer_email, customer_name)
+                
+                runner = gateway.create_runner(customer_email, customer_name)
 
                 try:
                     async for event in runner.stream_chat(messages):
@@ -144,7 +148,7 @@ async def chat_websocket(websocket: WebSocket):
                             ai_text = gateway.extract_ai_text(messages)
                             async with AsyncSessionLocal() as db:
                                 await gateway.save_message(
-                                    db, conversation.id, "AI", ai_text
+                                    db, conversation_id, "AI", ai_text
                                 )
                 except Exception as e:
                     logger.error(f"Resume stream error: {e}", exc_info=True)
@@ -155,7 +159,7 @@ async def chat_websocket(websocket: WebSocket):
 
             elif msg_type == "end":
                 async with AsyncSessionLocal() as db:
-                    await gateway.end_conversation(db, conversation.id)
+                    await gateway.end_conversation(db, conversation_id)
                 await websocket.send_json({"type": "ended"})
                 await websocket.close()
                 break

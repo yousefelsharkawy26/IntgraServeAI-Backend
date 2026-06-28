@@ -21,7 +21,7 @@ import pytest
 
 from ai_engine.action_engine import ActionEngine
 from utils.exceptions import (
-    ProtoNotFound, ServiceNotFound, MethodNotFound, ExecutionException
+    ProtoNotFound, ServiceNotFound, MethodNotFound
 )
 
 pytestmark = [pytest.mark.integration, pytest.mark.slow]
@@ -79,17 +79,17 @@ class TestProtoCompilation:
         proto_path = str(grpc_test_proto_dir / "payment.proto")
         pb2_1, pb2_grpc_1 = engine._compile_and_load_proto(proto_path)
         pb2_2, pb2_grpc_2 = engine._compile_and_load_proto(proto_path)
-        # Same module objects returned from cache
         assert pb2_1 is pb2_2
         assert pb2_grpc_1 is pb2_grpc_2
 
 
+@pytest.mark.asyncio
 class TestServiceMethodResolution:
     """
     RPC-I04, RPC-I05: Service and method resolution.
     """
 
-    def test_service_not_found(self, rpc_agent_config, grpc_test_proto_dir):
+    async def test_service_not_found(self, rpc_agent_config, grpc_test_proto_dir):
         actions = [{
             "name": "bad_service",
             "description": "Bad service",
@@ -112,10 +112,10 @@ class TestServiceMethodResolution:
         }]
         engine = ActionEngine(rpc_agent_config, actions_list=actions)
         with pytest.raises(ServiceNotFound) as exc_info:
-            engine.execute_action_directly("bad_service", {"transaction_id": "TX-1"})
+            await engine.execute_action_directly("bad_service", {"transaction_id": "TX-1"})
         assert "NonExistentService" in str(exc_info.value)
 
-    def test_method_not_found(self, rpc_agent_config, grpc_test_proto_dir, grpc_server_host):
+    async def test_method_not_found(self, rpc_agent_config, grpc_test_proto_dir, grpc_server_host):
         actions = [{
             "name": "bad_method",
             "description": "Bad method",
@@ -138,16 +138,17 @@ class TestServiceMethodResolution:
         }]
         engine = ActionEngine(rpc_agent_config, actions_list=actions)
         with pytest.raises(MethodNotFound) as exc_info:
-            engine.execute_action_directly("bad_method", {"transaction_id": "TX-1"})
+            await engine.execute_action_directly("bad_method", {"transaction_id": "TX-1"})
         assert "NonExistentMethod" in str(exc_info.value)
 
 
+@pytest.mark.asyncio
 class TestFullRpcCall:
     """
     RPC-I07: End-to-end RPC call with real server.
     """
 
-    def test_refund_transaction_success(self, rpc_agent_config, grpc_test_proto_dir, grpc_server_host):
+    async def test_refund_transaction_success(self, rpc_agent_config, grpc_test_proto_dir, grpc_server_host):
         actions = [{
             "name": "process_refund_request",
             "description": "Process refund",
@@ -186,14 +187,14 @@ class TestFullRpcCall:
             }
         }]
         engine = ActionEngine(rpc_agent_config, actions_list=actions)
-        result = engine.execute_action_directly(
+        result = await engine.execute_action_directly(
             "process_refund_request",
             {"transaction_id": "TX-999", "reason_code": "CUSTOMER_REQUEST"}
         )
         assert "PENDING" in result
         assert "49.99" in result
 
-    def test_refund_permission_denied(self, rpc_agent_config, grpc_test_proto_dir, grpc_server_host):
+    async def test_refund_permission_denied(self, rpc_agent_config, grpc_test_proto_dir, grpc_server_host):
         actions = [{
             "name": "refund_no_auth",
             "description": "Refund no auth",
@@ -204,7 +205,7 @@ class TestFullRpcCall:
                 "service": "PaymentService",
                 "method": "RefundTransaction",
                 "proto_file": str(grpc_test_proto_dir / "payment.proto"),
-                "headers": {}  # Missing admin key
+                "headers": {}
             },
             "parameters": {
                 "transaction_id": {
@@ -220,10 +221,10 @@ class TestFullRpcCall:
             }
         }]
         engine = ActionEngine(rpc_agent_config, actions_list=actions)
-        result = engine.execute_action_directly("refund_no_auth", {"transaction_id": "TX-1"})
+        result = await engine.execute_action_directly("refund_no_auth", {"transaction_id": "TX-1"})
         assert "RPC failed" in result
 
-    def test_refund_timeout(self, rpc_agent_config, grpc_test_proto_dir, grpc_server_host):
+    async def test_refund_timeout(self, rpc_agent_config, grpc_test_proto_dir, grpc_server_host):
         actions = [{
             "name": "refund_timeout",
             "description": "Refund timeout",
@@ -235,7 +236,7 @@ class TestFullRpcCall:
                 "method": "RefundTransaction",
                 "proto_file": str(grpc_test_proto_dir / "payment.proto"),
                 "headers": {"x-admin-key": "secret-admin-key"},
-                "timeout": 1  # 1ms - extremely tight
+                "timeout": 1
             },
             "parameters": {
                 "transaction_id": {
@@ -251,6 +252,5 @@ class TestFullRpcCall:
             }
         }]
         engine = ActionEngine(rpc_agent_config, actions_list=actions)
-        result = engine.execute_action_directly("refund_timeout", {"transaction_id": "TX-1"})
-        # May or may not timeout depending on local speed; we just assert graceful handling
+        result = await engine.execute_action_directly("refund_timeout", {"transaction_id": "TX-1"})
         assert "Timeout" in result or "PENDING" in result or "RPC failed" in result

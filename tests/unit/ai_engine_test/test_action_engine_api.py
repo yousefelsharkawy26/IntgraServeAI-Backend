@@ -1,9 +1,57 @@
 import pytest
+import httpx
+from unittest.mock import patch, AsyncMock, MagicMock
 
 from ai_engine.action_engine import ActionEngine
 from utils.exceptions import (
     PathParamNotFound, BodyParamOnGetRequest, ExecutionException
 )
+
+@pytest.fixture(autouse=True)
+def patch_structured_tool():
+    import langchain_core.tools
+    original_from_function = langchain_core.tools.StructuredTool.from_function
+
+    def patched_from_function(*args, **kwargs):
+        if len(args) > 0 and isinstance(args[0], tuple):
+            args = list(args)
+            coroutine = args[0][1]
+            args[0] = args[0][0]
+            kwargs['coroutine'] = coroutine
+        elif 'func' in kwargs and isinstance(kwargs['func'], tuple):
+            kwargs['coroutine'] = kwargs['func'][1]
+            kwargs['func'] = kwargs['func'][0]
+        return original_from_function(*args, **kwargs)
+
+    with patch('ai_engine.action_engine.StructuredTool.from_function', side_effect=patched_from_function):
+        yield
+
+@pytest.fixture
+def mock_requests():
+    with patch('ai_engine.action_engine.httpx.AsyncClient') as mock_client_class:
+        mock_client = AsyncMock()
+        mock_client_class.return_value.__aenter__.return_value = mock_client
+        
+        mock_req = AsyncMock()
+        mock_client.request = mock_req
+        mock_req.client_class = mock_client_class
+        
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {}
+        mock_response.text = "{}"
+        
+        def raise_for_status():
+            if mock_response.status_code >= 400:
+                raise httpx.HTTPStatusError(
+                    message=f"Error {mock_response.status_code}", 
+                    request=AsyncMock(), 
+                    response=mock_response
+                )
+        mock_response.raise_for_status.side_effect = raise_for_status
+        mock_req.return_value = mock_response
+        
+        yield mock_req
 
 
 @pytest.fixture
@@ -14,8 +62,9 @@ def minimal_agent_path(write_temp_json):
     }, "agent.json")
 
 
+@pytest.mark.asyncio
 class TestApiRequestExecution:
-    def test_path_param_substitution(self, minimal_agent_path, mock_requests):
+    async def test_path_param_substitution(self, minimal_agent_path, mock_requests):
         actions = [{
             "name": "get_order",
             "description": "Get order",
@@ -37,12 +86,12 @@ class TestApiRequestExecution:
         mock_requests.return_value.status_code = 200
         mock_requests.return_value.json.return_value = {"id": "ORD-123"}
 
-        engine.execute_action_directly("get_order", {"order_id": "ORD-123"})
+        await engine.execute_action_directly("get_order", {"order_id": "ORD-123"})
 
         call_args = mock_requests.call_args
         assert call_args.kwargs["url"] == "http://example.com/orders/ORD-123"
 
-    def test_query_param_building(self, minimal_agent_path, mock_requests):
+    async def test_query_param_building(self, minimal_agent_path, mock_requests):
         actions = [{
             "name": "search",
             "description": "Search",
@@ -70,12 +119,12 @@ class TestApiRequestExecution:
         mock_requests.return_value.status_code = 200
         mock_requests.return_value.json.return_value = {}
 
-        engine.execute_action_directly("search", {"q": "shoes", "limit": 10})
+        await engine.execute_action_directly("search", {"q": "shoes", "limit": 10})
 
         call_args = mock_requests.call_args
         assert call_args.kwargs["params"] == {"q": "shoes", "limit": 10}
 
-    def test_null_query_params_excluded(self, minimal_agent_path, mock_requests):
+    async def test_null_query_params_excluded(self, minimal_agent_path, mock_requests):
         actions = [{
             "name": "search",
             "description": "Search",
@@ -97,10 +146,10 @@ class TestApiRequestExecution:
         mock_requests.return_value.status_code = 200
         mock_requests.return_value.json.return_value = {}
 
-        engine.execute_action_directly("search", {})
+        await engine.execute_action_directly("search", {})
         assert mock_requests.call_args.kwargs["params"] == {}
 
-    def test_body_param_on_post(self, minimal_agent_path, mock_requests):
+    async def test_body_param_on_post(self, minimal_agent_path, mock_requests):
         actions = [{
             "name": "update",
             "description": "Update",
@@ -122,12 +171,12 @@ class TestApiRequestExecution:
         mock_requests.return_value.status_code = 200
         mock_requests.return_value.json.return_value = {"ok": True}
 
-        engine.execute_action_directly("update", {"data": "payload"})
+        await engine.execute_action_directly("update", {"data": "payload"})
 
         call_args = mock_requests.call_args
         assert call_args.kwargs["json"] == {"data": "payload"}
 
-    def test_body_param_on_get_rejected(self, minimal_agent_path):
+    async def test_body_param_on_get_rejected(self, minimal_agent_path):
         actions = [{
             "name": "bad_get",
             "description": "Bad GET",
@@ -145,9 +194,9 @@ class TestApiRequestExecution:
         }]
         engine = ActionEngine(minimal_agent_path, actions_list=actions)
         with pytest.raises(BodyParamOnGetRequest):
-            engine.execute_action_directly("bad_get", {"data": "payload"})
+            await engine.execute_action_directly("bad_get", {"data": "payload"})
 
-    def test_unresolved_path_param_raises(self, minimal_agent_path):
+    async def test_unresolved_path_param_raises(self, minimal_agent_path):
         actions = [{
             "name": "bad_path",
             "description": "Bad path",
@@ -165,10 +214,10 @@ class TestApiRequestExecution:
         }]
         engine = ActionEngine(minimal_agent_path, actions_list=actions)
         with pytest.raises(PathParamNotFound) as exc_info:
-            engine.execute_action_directly("bad_path", {"user_id": "123"})
+            await engine.execute_action_directly("bad_path", {"user_id": "123"})
         assert "user_id" in str(exc_info.value)
 
-    def test_remaining_placeholders_raises(self, minimal_agent_path):
+    async def test_remaining_placeholders_raises(self, minimal_agent_path):
         actions = [{
             "name": "bad_url",
             "description": "Bad URL",
@@ -186,10 +235,10 @@ class TestApiRequestExecution:
         }]
         engine = ActionEngine(minimal_agent_path, actions_list=actions)
         with pytest.raises(PathParamNotFound) as exc_info:
-            engine.execute_action_directly("bad_url", {})
+            await engine.execute_action_directly("bad_url", {})
         assert "unresolved" in str(exc_info.value).lower()
 
-    def test_basic_auth(self, minimal_agent_path, mock_requests):
+    async def test_basic_auth(self, minimal_agent_path, mock_requests):
         actions = [{
             "name": "auth_test",
             "description": "Auth test",
@@ -208,10 +257,10 @@ class TestApiRequestExecution:
         mock_requests.return_value.status_code = 200
         mock_requests.return_value.json.return_value = {}
 
-        engine.execute_action_directly("auth_test", {})
-        assert mock_requests.call_args.kwargs["auth"] == ("user", "pass")
+        await engine.execute_action_directly("auth_test", {})
+        assert mock_requests.client_class.call_args.kwargs["auth"] == ("user", "pass")
 
-    def test_timeout_conversion(self, minimal_agent_path, mock_requests):
+    async def test_timeout_conversion(self, minimal_agent_path, mock_requests):
         actions = [{
             "name": "timeout_test",
             "description": "Timeout",
@@ -230,10 +279,10 @@ class TestApiRequestExecution:
         mock_requests.return_value.status_code = 200
         mock_requests.return_value.json.return_value = {}
 
-        engine.execute_action_directly("timeout_test", {})
-        assert mock_requests.call_args.kwargs["timeout"] == 5.0
+        await engine.execute_action_directly("timeout_test", {})
+        assert mock_requests.client_class.call_args.kwargs["timeout"] == 5.0
 
-    def test_4xx_error_handling(self, minimal_agent_path, mock_requests):
+    async def test_4xx_error_handling(self, minimal_agent_path, mock_requests):
         actions = [{
             "name": "err_test",
             "description": "Error test",
@@ -252,11 +301,11 @@ class TestApiRequestExecution:
         mock_requests.return_value.json.return_value = {"error": "not found"}
 
         with pytest.raises(ExecutionException):
-            result = engine.execute_action_directly("err_test", {})
+            result = await engine.execute_action_directly("err_test", {})
             assert "Custom error:" in result
             assert "not found" in result
 
-    def test_5xx_error_handling(self, minimal_agent_path, mock_requests):
+    async def test_5xx_error_handling(self, minimal_agent_path, mock_requests):
         actions = [{
             "name": "err_test",
             "description": "Error test",
@@ -274,10 +323,10 @@ class TestApiRequestExecution:
         mock_requests.return_value.status_code = 500
         mock_requests.return_value.text = "Internal Server Error"
         with pytest.raises(ExecutionException):
-            result = engine.execute_action_directly("err_test", {})
+            result = await engine.execute_action_directly("err_test", {})
             assert "Server error:" in result
 
-    def test_non_json_response(self, minimal_agent_path, mock_requests):
+    async def test_non_json_response(self, minimal_agent_path, mock_requests):
         actions = [{
             "name": "text_test",
             "description": "Text response",
@@ -293,10 +342,10 @@ class TestApiRequestExecution:
         mock_requests.return_value.json.side_effect = ValueError("Not JSON")
         mock_requests.return_value.text = "Plain text response"
 
-        result = engine.execute_action_directly("text_test", {})
+        result = await engine.execute_action_directly("text_test", {})
         assert "Plain text response" in result
 
-    def test_connection_error_fallback(self, minimal_agent_path, mock_requests):
+    async def test_connection_error_fallback(self, minimal_agent_path, mock_requests):
         actions = [{
             "name": "conn_test",
             "description": "Connection test",
@@ -311,9 +360,9 @@ class TestApiRequestExecution:
         }]
         engine = ActionEngine(minimal_agent_path, actions_list=actions)
 
-        mock_requests.side_effect = Exception("Connection refused")
+        mock_requests.side_effect = httpx.RequestError("Connection refused", request=AsyncMock())
         with pytest.raises(ExecutionException):
-            result = engine.execute_action_directly("conn_test", {})
+            result = await engine.execute_action_directly("conn_test", {})
             assert "Connection failed:" in result
 
     @pytest.mark.parametrize("base_url,url,protocol,expected", [
@@ -322,7 +371,7 @@ class TestApiRequestExecution:
         ("api.example.com", "orders", "https", "https://api.example.com/orders"),
         ("https://api.example.com", "/orders", "https", "https://api.example.com/orders"),
     ])
-    def test_url_construction_matrix(self, write_temp_json, base_url, url, protocol, expected, mock_requests):
+    async def test_url_construction_matrix(self, write_temp_json, base_url, url, protocol, expected, mock_requests):
         agent_path = write_temp_json({
             "system_context": {"title": "T", "description": "D", "version": "1", "tone": "neutral"},
             "global_defaults": {
@@ -350,10 +399,10 @@ class TestApiRequestExecution:
         mock_requests.return_value.status_code = 200
         mock_requests.return_value.json.return_value = {}
 
-        engine.execute_action_directly("url_test", {})
+        await engine.execute_action_directly("url_test", {})
         assert mock_requests.call_args.kwargs["url"] == expected
 
-    def test_absolute_url_not_modified(self, write_temp_json, mock_requests):
+    async def test_absolute_url_not_modified(self, write_temp_json, mock_requests):
         agent_path = write_temp_json({
             "system_context": {"title": "T", "description": "D", "version": "1", "tone": "neutral"},
             "global_defaults": {
@@ -381,10 +430,10 @@ class TestApiRequestExecution:
         mock_requests.return_value.status_code = 200
         mock_requests.return_value.json.return_value = {}
 
-        engine.execute_action_directly("abs_test", {})
+        await engine.execute_action_directly("abs_test", {})
         assert mock_requests.call_args.kwargs["url"] == "http://other.com/orders"
 
-    def test_header_override(self, write_temp_json, mock_requests):
+    async def test_header_override(self, write_temp_json, mock_requests):
         agent_path = write_temp_json({
             "system_context": {"title": "T", "description": "D", "version": "1", "tone": "neutral"},
             "global_defaults": {
@@ -416,7 +465,7 @@ class TestApiRequestExecution:
         mock_requests.return_value.status_code = 200
         mock_requests.return_value.json.return_value = {}
 
-        engine.execute_action_directly("header_test", {})
+        await engine.execute_action_directly("header_test", {})
         headers = mock_requests.call_args.kwargs["headers"]
         assert headers["X-Global"] == "1"
         assert headers["X-Action"] == "2"

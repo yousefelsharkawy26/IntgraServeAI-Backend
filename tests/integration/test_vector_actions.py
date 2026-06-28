@@ -54,12 +54,13 @@ def vector_agent_config(write_temp_json):
     }, "agent.json")
 
 
+@pytest.mark.asyncio
 class TestPostgresVectorSearch:
     """
     VEC-I01: Real Postgres + pgvector search.
     """
 
-    def test_semantic_search_postgres(self, vector_agent_config, postgres_vector_db, monkeypatch):
+    async def test_semantic_search_postgres(self, vector_agent_config, postgres_vector_db, monkeypatch):
         conn_str, collection = postgres_vector_db
 
         monkeypatch.setenv("DB_USER", "testuser")
@@ -102,22 +103,20 @@ class TestPostgresVectorSearch:
 
         engine = ActionEngine(vector_agent_config, actions_list=actions)
 
-        # Patch generate_embedding to return a known vector
         import ai_engine.action_engine as ae
         orig_generate = ae.generate_embedding
 
         def mock_gen(text, config):
-            # Return the running shoes vector for any query
             return [0.1] * 768
 
         ae.generate_embedding = mock_gen
         try:
-            result = engine.execute_action_directly("search_products_semantic", {"topic": "running shoes"})
+            result = await engine.execute_action_directly("search_products_semantic", {"topic": "running shoes"})
             assert "Nike Air Zoom" in result or "Adidas Ultraboost" in result
         finally:
             ae.generate_embedding = orig_generate
 
-    def test_collection_name_validation(self, vector_agent_config):
+    async def test_collection_name_validation(self, vector_agent_config):
         actions = [{
             "name": "bad_collection",
             "description": "Bad collection",
@@ -149,16 +148,17 @@ class TestPostgresVectorSearch:
         }]
         engine = ActionEngine(vector_agent_config, actions_list=actions)
         with pytest.raises(VectorSearchError) as exc_info:
-            engine.execute_action_directly("bad_collection", {"topic": "test"})
+            await engine.execute_action_directly("bad_collection", {"topic": "test"})
         assert "Invalid collection name" in str(exc_info.value)
 
 
+@pytest.mark.asyncio
 class TestSQLiteVectorSearch:
     """
     VEC-I02: Real SQLite + sqlite-vec search.
     """
 
-    def test_semantic_search_sqlite(self, vector_agent_config, sqlite_vector_db):
+    async def test_semantic_search_sqlite(self, vector_agent_config, sqlite_vector_db):
         db_path, collection = sqlite_vector_db
 
         actions = [{
@@ -202,19 +202,19 @@ class TestSQLiteVectorSearch:
 
         ae.generate_embedding = mock_gen
         try:
-            result = engine.execute_action_directly("search_sqlite", {"topic": "running shoes"})
-            # SQLite vec search results may vary; we just assert no crash
+            result = await engine.execute_action_directly("search_sqlite", {"topic": "running shoes"})
             assert "Found" in result
         finally:
             ae.generate_embedding = orig_generate
 
 
+@pytest.mark.asyncio
 class TestVectorErrors:
     """
     VEC-U07, VEC-U08: Error paths.
     """
 
-    def test_unsupported_driver(self, vector_agent_config):
+    async def test_unsupported_driver(self, vector_agent_config):
         actions = [{
             "name": "bad_driver",
             "description": "Bad driver",
@@ -241,10 +241,10 @@ class TestVectorErrors:
         }]
         engine = ActionEngine(vector_agent_config, actions_list=actions)
         with pytest.raises(UnsupportedDatabaseDriver) as exc_info:
-            engine.execute_action_directly("bad_driver", {"topic": "test"})
+            await engine.execute_action_directly("bad_driver", {"topic": "test"})
         assert "mongo" in str(exc_info.value)
 
-    def test_missing_vector_param(self, vector_agent_config):
+    async def test_missing_vector_param(self, vector_agent_config):
         actions = [{
             "name": "no_vector_param",
             "description": "No vector param",
@@ -265,5 +265,5 @@ class TestVectorErrors:
         }]
         engine = ActionEngine(vector_agent_config, actions_list=actions)
         with pytest.raises(VectorSearchError) as exc_info:
-            engine.execute_action_directly("no_vector_param", {"query": "test"})
+            await engine.execute_action_directly("no_vector_param", {"query": "test"})
         assert "param_type='vector'" in str(exc_info.value)

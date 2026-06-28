@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from core.config import settings
+from core.database import AsyncSessionLocal
 from models.chat import ChatConversation, ChatMessage, SenderType
 from models.ticket import TicketPriority, TicketType
 from services.ticket_service import TicketService
@@ -29,7 +30,26 @@ logger = logging.getLogger(__name__)
 class AIGatewayService:
     """Bridge between the FastAPI backend and the AI Engine."""
 
-    # ==================== Conversation Lifecycle ====================
+    _engine_cache: Optional[ActionEngine] = None
+
+    @classmethod
+    def get_engine(cls) -> ActionEngine:
+        if cls._engine_cache is None:
+            cls.reload_engine()
+        return cls._engine_cache
+
+    @classmethod
+    def reload_engine(cls) -> None:
+        agent_config_path = settings.AGENT_CONFIG_FILE_FULL_PATH
+        actions_file_path = settings.ACTIONS_FILE_FULL_PATH
+
+        actions_list = AIConfigAdapter.load_actions_for_engine(str(actions_file_path))
+        
+        logger.info("Reloading ActionEngine configuration into memory cache.")
+        cls._engine_cache = ActionEngine(
+            agent_config_path=str(agent_config_path),
+            actions_list=actions_list
+        )
 
     async def get_or_create_conversation(
         self,
@@ -177,24 +197,16 @@ class AIGatewayService:
 
     def create_runner(
         self,
-        db: AsyncSession,
         customer_email: str,
         customer_name: str
     ) -> AgentRunner:
-        agent_config_path = settings.AGENT_CONFIG_FILE_FULL_PATH
-        actions_file_path = settings.ACTIONS_FILE_FULL_PATH
-
-        actions_list = AIConfigAdapter.load_actions_for_engine(str(actions_file_path))
-
-        engine = ActionEngine(
-            agent_config_path=str(agent_config_path),
-            actions_list=actions_list
-        )
+        engine = self.get_engine()
 
         async def internal_handler(action_name: str, params: dict) -> str:
-            return await self.handle_internal_action(
-                action_name, params, db, customer_email, customer_name
-            )
+            async with AsyncSessionLocal() as db:
+                return await self.handle_internal_action(
+                    action_name, params, db, customer_email, customer_name
+                )
 
         return AgentRunner(engine, internal_handler=internal_handler)
 
@@ -284,25 +296,19 @@ class AIGatewayService:
     async def execute_paused_action(
         self,
         pause_data: Dict[str, Any],
-        db: AsyncSession,
         customer_email: str,
         customer_name: str
     ) -> str:
         action_name = pause_data["action_name"]
         params = pause_data["params"]
 
-        actions_file_path = settings.ACTIONS_FILE_FULL_PATH
-        actions_list = AIConfigAdapter.load_actions_for_engine(str(actions_file_path))
-        act = next((a for a in actions_list if a.get("name") == action_name), None)
+        engine = self.get_engine()
+        act = next((a for a in engine.actions if a.name == action_name), None)
 
-        if act and act.get("type") == "internal":
-            return await self.handle_internal_action(
-                action_name, params, db, customer_email, customer_name
-            )
+        if act and act.type == "internal":
+            async with AsyncSessionLocal() as db:
+                return await self.handle_internal_action(
+                    action_name, params, db, customer_email, customer_name
+                )
         else:
-            agent_config_path = settings.AGENT_CONFIG_FILE_FULL_PATH
-            engine = ActionEngine(
-                agent_config_path=str(agent_config_path),
-                actions_list=actions_list
-            )
-            return engine.execute_action_directly(action_name, params)
+            return await engine.execute_action_directly(action_name, params)

@@ -4,7 +4,6 @@ import json
 import shutil
 import logging
 import copy
-from pathlib import Path
 from datetime import datetime, timezone
 from typing import Dict, Any, List, Optional, Tuple
 from uuid import UUID
@@ -12,8 +11,9 @@ from filelock import FileLock
 from pydantic import ValidationError
 
 from core.config import settings
-from utils.exceptions import NotFoundException, BadRequestException, ServerException, ValidationException
+from utils.exceptions import NotFoundException, BadRequestException, ServerException
 from utils.schemas import agent_config_schemas as schemas
+from services.ai_gateway_service import AIGatewayService
 
 logger = logging.getLogger(__name__)
 
@@ -126,32 +126,34 @@ class AgentConfigService:
         try:
             validated_data = schemas.AgentConfig.model_validate(config_data).model_dump()
             full_data = {**validated_data, "metadata": {"last_updated": datetime.now(timezone.utc), "updated_by": updated_by}}
-            return self._save_data(full_data)
+            result = self._save_data(full_data)
+            
+            AIGatewayService.reload_engine()
+            
+            return result
         except (ValueError, ValidationError) as e:
             raise BadRequestException(str(e))
 
     def update_section(self, section_name: str, update_data: Dict, updated_by: UUID) -> Optional[str]:
         current_config = self._load_data()
         
-        # Deep merge the update_data into the specific section.
-        # If section doesn't exist, it will be created.
         current_section = current_config.get(section_name, {})
         if not isinstance(current_section, dict):
-            # Overwrite if the existing section is not a dict (e.g., null)
             current_section = {}
             
         merged_section = deep_merge(source=update_data, destination=current_section)
         current_config[section_name] = merged_section
 
-        # Validate the entire configuration after merging
         try:
             schemas.AgentConfig.model_validate(current_config)
         except (ValueError, ValidationError) as e:
             raise BadRequestException(f"Update for section '{section_name}' creates an invalid overall configuration: {e}")
 
-        # Update metadata and save
         current_config.setdefault("metadata", {})["last_updated"] = datetime.now(timezone.utc)
         current_config["metadata"]["updated_by"] = updated_by
+
+        AIGatewayService.reload_engine()
+
         return self._save_data(current_config)
 
     def list_backups(self) -> List[Dict[str, Any]]:
@@ -176,6 +178,9 @@ class AgentConfigService:
         content["metadata"]["updated_by"] = updated_by
         content["metadata"]["restored_from"] = filename
         self._save_data(content, backup=False)
+
+        AIGatewayService.reload_engine()
+        
         return filename, current_backup
 
     def delete_backup(self, filename: str) -> None:

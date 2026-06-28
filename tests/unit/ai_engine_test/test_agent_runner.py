@@ -14,15 +14,57 @@ Markers: unit
 """
 
 import pytest
-from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage, AIMessage
+import httpx
+from unittest.mock import AsyncMock, MagicMock, patch
+from langchain_core.messages import HumanMessage, SystemMessage
 
 from ai_engine.agent_runner import AgentRunner
 from ai_engine.action_engine import ActionEngine
 from utils.exceptions import (
-    ParsingException, ActionRequiresConfirmationError
+    ParsingException
 )
 
 pytestmark = pytest.mark.unit
+
+@pytest.fixture(autouse=True)
+def patch_structured_tool():
+    import langchain_core.tools
+    original_from_function = langchain_core.tools.StructuredTool.from_function
+
+    def patched_from_function(*args, **kwargs):
+        if len(args) > 0 and isinstance(args[0], tuple):
+            args = list(args)
+            coroutine = args[0][1]
+            args[0] = args[0][0]
+            kwargs['coroutine'] = coroutine
+        elif 'func' in kwargs and isinstance(kwargs['func'], tuple):
+            kwargs['coroutine'] = kwargs['func'][1]
+            kwargs['func'] = kwargs['func'][0]
+        return original_from_function(*args, **kwargs)
+
+    with patch('ai_engine.action_engine.StructuredTool.from_function', side_effect=patched_from_function):
+        yield
+
+
+@pytest.fixture
+def mock_requests():
+    with patch('httpx.AsyncClient.request', new_callable=AsyncMock) as mock_req:
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {}
+        mock_response.text = "{}"
+        
+        def raise_for_status():
+            if mock_response.status_code >= 400:
+                raise httpx.HTTPStatusError(
+                    message=f"Error {mock_response.status_code}", 
+                    request=httpx.Request("GET", "http://test"), 
+                    response=mock_response
+                )
+        mock_response.raise_for_status.side_effect = raise_for_status
+        mock_req.return_value = mock_response
+        
+        yield mock_req
 
 
 # ---------------------------------------------------------------------------
@@ -188,7 +230,6 @@ class TestInitialization:
 
     def test_no_tools_binds_plain_llm(self, runner_no_tools):
         assert runner_no_tools.tools == []
-        # llm_with_tools should equal llm when no tools
         assert runner_no_tools.llm_with_tools is runner_no_tools.llm
 
 
@@ -201,7 +242,6 @@ class TestToolReload:
 
     def test_reload_adds_new_tools(self, runner_with_tools):
         original_count = len(runner_with_tools.tools)
-        # Add a new action to the engine
         runner_with_tools.engine.actions.append(
             runner_with_tools.engine.actions[0].model_copy(update={"name": "new_tool"})
         )
@@ -213,7 +253,6 @@ class TestToolReload:
     def test_reload_rebinds_llm(self, runner_with_tools):
         original = runner_with_tools.llm_with_tools
         runner_with_tools.reload_tools()
-        # After reload, llm_with_tools should be rebound (different object)
         assert runner_with_tools.llm_with_tools is not original
 
     def test_reload_logs_count(self, runner_with_tools, caplog):
@@ -255,13 +294,10 @@ class TestStreamingTextOnly:
         runner_no_tools.llm_with_tools = text_only_llm.bind_tools([])
 
         messages = [HumanMessage(content="Hello")]
-        # stream_chat should prepend SystemMessage if missing
         events = []
         async for event in runner_no_tools.stream_chat(messages):
             events.append(event)
 
-        # The first message in the working list should be SystemMessage
-        # We verify this indirectly by checking no crash occurs
         assert any(e["type"] == "done" for e in events)
 
 
@@ -281,7 +317,6 @@ class TestStreamingSingleTool:
         async for event in runner_with_tools.stream_chat(messages):
             events.append(event)
 
-        # Should have tool_start, tool_end, and done
         types = [e["type"] for e in events]
         assert "tool_start" in types
         assert "tool_end" in types
@@ -361,7 +396,6 @@ class TestInternalHandler:
         engine = ActionEngine(runner_agent_config, actions_list=actions)
         runner = AgentRunner(engine, internal_handler=sync_handler)
 
-        # Mock LLM to call internal_notify
         from .fixtures.mock_llm import FakeLLM, make_tool_call_chunks
         llm = FakeLLM(turns=[
             make_tool_call_chunks([
@@ -383,10 +417,10 @@ class TestInternalHandler:
     @pytest.mark.asyncio
     async def test_async_internal_handler(self, runner_agent_config):
         async def async_handler(name, args):
-            await asyncio.sleep(0.001)  # simulate async work
+            import asyncio
+            await asyncio.sleep(0.001)
             return f"Async handled {name}"
 
-        import asyncio
         actions = [{
             "name": "internal_notify",
             "description": "Notify",
@@ -470,7 +504,6 @@ class TestConfirmationPause:
 
         assert "assistant_message" in resume
         assert "completed_tool_results" in resume
-        # No tools completed before pause, so list is empty
         assert resume["completed_tool_results"] == []
 
     @pytest.mark.asyncio
@@ -499,7 +532,6 @@ class TestConfirmationPause:
 
         pause = [e for e in events if e["type"] == "pause"][0]
         resume = pause["_resume_state"]
-        # First tool completed, second caused pause
         completed = resume["completed_tool_results"]
         assert len(completed) == 1
         assert completed[0]["tool_call_id"] == "call_1"
@@ -517,7 +549,7 @@ class TestToolErrorRecovery:
         runner_with_tools.llm = error_tool_llm
         runner_with_tools.llm_with_tools = error_tool_llm.bind_tools(runner_with_tools.tools)
 
-        mock_requests.side_effect = Exception("API down")
+        mock_requests.side_effect = httpx.RequestError("API down", request=httpx.Request("GET", "http://test"))
 
         messages = [HumanMessage(content="Order status?")]
         events = []
@@ -585,10 +617,6 @@ class TestRateLimiting:
         async for event in runner.stream_chat(messages):
             events1.append(event)
 
-        # Second iteration (would need tool call to trigger, but with no tools
-        # it just returns done immediately)
-        # To test rate limiting properly, we need a tool call scenario
-        # Let's verify the config is read correctly instead
         assert runner.engine.agent_config.llm_config.rate_limit_delay_seconds == 1
 
 
@@ -605,7 +633,7 @@ class TestCorrelationIdLifecycle:
         runner_no_tools.llm_with_tools = text_only_llm.bind_tools([])
 
         from utils.exceptions import get_correlation_id
-        assert get_correlation_id() is None  # clean before test
+        assert get_correlation_id() is None
 
         messages = [HumanMessage(content="Hello")]
         events = []
@@ -626,8 +654,6 @@ class TestCorrelationIdLifecycle:
         async for event in runner_no_tools.stream_chat(messages, correlation_id="temp-123"):
             pass
 
-        # After stream_chat completes, correlation_id should be reset
-        # (This tests the HF-01 fix)
         assert get_correlation_id() is None
 
     @pytest.mark.asyncio
@@ -640,7 +666,6 @@ class TestCorrelationIdLifecycle:
         async for event in runner_no_tools.stream_chat(messages):
             events.append(event)
 
-        # correlation_id should be None in all events when not provided
         for event in events:
             assert event.get("correlation_id") is None
 
@@ -662,8 +687,6 @@ class TestSystemPromptInjection:
         async for event in runner_no_tools.stream_chat(messages):
             events.append(event)
 
-        # The runner should have inserted SystemMessage at index 0
-        # We verify by checking the system_prompt is non-empty
         assert "Test Runner" in runner_no_tools.system_prompt
 
     @pytest.mark.asyncio
@@ -677,8 +700,6 @@ class TestSystemPromptInjection:
         async for event in runner_no_tools.stream_chat(messages):
             events.append(event)
 
-        # Should not prepend another SystemMessage
-        # We verify by checking no crash and done event present
         assert any(e["type"] == "done" for e in events)
 
 
@@ -739,7 +760,7 @@ class TestRealLLMIntegration:
             }
         ]
         
-        def internal_handler(name, args):
+        async def internal_handler(name, args):
             if name == "get_status":
                 return "System is operational."
             elif name == "greet_user":
@@ -778,5 +799,4 @@ class TestRealLLMIntegration:
         async for event in runner_real_llm_tools.stream_chat(messages):
             events.append(event)
 
-        # We just assert the stream completes without crash
         assert any(e["type"] == "done" for e in events)

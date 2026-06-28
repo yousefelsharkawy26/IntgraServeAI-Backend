@@ -1,14 +1,62 @@
 import pytest
+import httpx
 from pydantic import ValidationError
 
-from unittest.mock import patch
+from unittest.mock import patch, AsyncMock, MagicMock
 
 from ai_engine.action_engine import ActionEngine
 from utils.exceptions import (
     InvalidActionStructure, ActionNotFound, ActionNotActive,
-    ActionRequiresConfirmationError, ExecutionException, PathParamNotFound,
-    BodyParamOnGetRequest
+    ActionRequiresConfirmationError, ExecutionException
 )
+
+@pytest.fixture(autouse=True)
+def patch_structured_tool():
+    import langchain_core.tools
+    original_from_function = langchain_core.tools.StructuredTool.from_function
+
+    def patched_from_function(*args, **kwargs):
+        if len(args) > 0 and isinstance(args[0], tuple):
+            args = list(args)
+            coroutine = args[0][1]
+            args[0] = args[0][0]
+            kwargs['coroutine'] = coroutine
+        elif 'func' in kwargs and isinstance(kwargs['func'], tuple):
+            kwargs['coroutine'] = kwargs['func'][1]
+            kwargs['func'] = kwargs['func'][0]
+        return original_from_function(*args, **kwargs)
+
+    with patch('ai_engine.action_engine.StructuredTool.from_function', side_effect=patched_from_function):
+        yield
+
+@pytest.fixture
+def mock_requests():
+    with patch('ai_engine.action_engine.httpx.AsyncClient') as mock_client_class:
+        mock_client = AsyncMock()
+        mock_client_class.return_value.__aenter__.return_value = mock_client
+        
+        mock_req = AsyncMock()
+        mock_client.request = mock_req
+        mock_req.client_class = mock_client_class
+        
+        # Use MagicMock here because httpx.Response methods like .json() 
+        # and .raise_for_status() are synchronous, not asynchronous.
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {}
+        mock_response.text = "{}"
+        
+        def raise_for_status():
+            if mock_response.status_code >= 400:
+                raise httpx.HTTPStatusError(
+                    message=f"Error {mock_response.status_code}", 
+                    request=MagicMock(), 
+                    response=mock_response
+                )
+        mock_response.raise_for_status.side_effect = raise_for_status
+        mock_req.return_value = mock_response
+        
+        yield mock_req
 
 
 @pytest.fixture
@@ -128,8 +176,9 @@ class TestToolBuilding:
         assert tools[0].description == "This is the description"
 
 
+@pytest.mark.asyncio
 class TestDirectExecution:
-    def test_happy_path_api(self, minimal_agent_path, mock_requests):
+    async def test_happy_path_api(self, minimal_agent_path, mock_requests):
         actions = [{
             "name": "test_api",
             "description": "Test",
@@ -144,25 +193,25 @@ class TestDirectExecution:
         mock_requests.return_value.status_code = 200
         mock_requests.return_value.json.return_value = {"status": "ok"}
 
-        result = engine.execute_action_directly("test_api", {})
+        result = await engine.execute_action_directly("test_api", {})
         assert "ok" in result
 
-    def test_not_found(self, minimal_agent_path):
+    async def test_not_found(self, minimal_agent_path):
         engine = ActionEngine(minimal_agent_path, actions_list=[])
         with pytest.raises(ActionNotFound) as exc_info:
-            engine.execute_action_directly("missing", {})
+            await engine.execute_action_directly("missing", {})
         assert "missing" in str(exc_info.value)
 
-    def test_inactive(self, minimal_agent_path):
+    async def test_inactive(self, minimal_agent_path):
         actions = [
             {"name": "inactive", "description": "I", "type": "internal", "active": False}
         ]
         engine = ActionEngine(minimal_agent_path, actions_list=actions)
         with pytest.raises(ActionNotActive) as exc_info:
-            engine.execute_action_directly("inactive", {})
+            await engine.execute_action_directly("inactive", {})
         assert "inactive" in str(exc_info.value)
 
-    def test_param_validation_failure(self, minimal_agent_path):
+    async def test_param_validation_failure(self, minimal_agent_path):
         actions = [{
             "name": "typed_action",
             "description": "Test",
@@ -179,10 +228,10 @@ class TestDirectExecution:
         }]
         engine = ActionEngine(minimal_agent_path, actions_list=actions)
         with pytest.raises(InvalidActionStructure) as exc_info:
-            engine.execute_action_directly("typed_action", {"count": "not_an_int"})
+            await engine.execute_action_directly("typed_action", {"count": "not_an_int"})
         assert "validation" in str(exc_info.value).lower()
 
-    def test_confirmation_gate(self, minimal_agent_path):
+    async def test_confirmation_gate(self, minimal_agent_path):
         actions = [{
             "name": "dangerous",
             "description": "Dangerous action",
@@ -192,11 +241,11 @@ class TestDirectExecution:
         }]
         engine = ActionEngine(minimal_agent_path, actions_list=actions)
         with pytest.raises(ActionRequiresConfirmationError) as exc_info:
-            engine.execute_action_directly("dangerous", {"x": 1})
+            await engine.execute_action_directly("dangerous", {"x": 1})
         assert exc_info.value.action_name == "dangerous"
         assert exc_info.value.params == {"x": 1}
 
-    def test_skip_confirmation(self, minimal_agent_path):
+    async def test_skip_confirmation(self, minimal_agent_path):
         actions = [{
             "name": "dangerous",
             "description": "Dangerous action",
@@ -205,10 +254,10 @@ class TestDirectExecution:
             "requires_confirmation": True
         }]
         engine = ActionEngine(minimal_agent_path, actions_list=actions)
-        result = engine.execute_action_directly("dangerous", {"x": 1}, skip_confirmation=True)
+        result = await engine.execute_action_directly("dangerous", {"x": 1}, skip_confirmation=True)
         assert "processed successfully" in result
 
-    def test_param_validation_success(self, minimal_agent_path):
+    async def test_param_validation_success(self, minimal_agent_path):
         actions = [{
             "name": "typed_action",
             "description": "Test",
@@ -224,10 +273,10 @@ class TestDirectExecution:
             }
         }]
         engine = ActionEngine(minimal_agent_path, actions_list=actions)
-        result = engine.execute_action_directly("typed_action", {"count": 42})
+        result = await engine.execute_action_directly("typed_action", {"count": 42})
         assert "42" in result
 
-    def test_vector_execution_direct(
+    async def test_vector_execution_direct(
         self, 
         mock_generate_embedding,
         mock_get_vector_driver,  
@@ -257,7 +306,7 @@ class TestDirectExecution:
             "response_config": {"mode": "raw"}
         }]
         engine = ActionEngine(minimal_agent_path, actions_list=actions)
-        result = engine.execute_action_directly("search_vec", {"topic": "shoes"})
+        result = await engine.execute_action_directly("search_vec", {"topic": "shoes"})
         assert "Product" in result
         mock_generate_embedding.assert_called_once_with("shoes", engine.actions[0].execution_config.embedding_config)
 
@@ -287,14 +336,14 @@ class TestPathParamSanitization:
         assert "invalid characters" in str(exc_info.value)
 
     def test_url_encoded_traversal_documented(self, minimal_agent_path):
-        # Documented limitation: %2e%2e is not blocked by current sanitizer
         engine = ActionEngine(minimal_agent_path, actions_list=[])
         result = engine._sanitize_path_param("id", "%2e%2e")
         assert result == "%2e%2e"
 
 
+@pytest.mark.asyncio
 class TestInternalExecution:
-    def test_internal_action(self, minimal_agent_path):
+    async def test_internal_action(self, minimal_agent_path):
         actions = [{
             "name": "notify",
             "description": "Notify",
@@ -302,11 +351,11 @@ class TestInternalExecution:
             "active": True
         }]
         engine = ActionEngine(minimal_agent_path, actions_list=actions)
-        result = engine.execute_action_directly("notify", {"msg": "hello"})
+        result = await engine.execute_action_directly("notify", {"msg": "hello"})
         assert "notify" in result
         assert "hello" in result
 
-    def test_internal_action_no_params(self, minimal_agent_path):
+    async def test_internal_action_no_params(self, minimal_agent_path):
         actions = [{
             "name": "ping",
             "description": "Ping",
@@ -314,5 +363,5 @@ class TestInternalExecution:
             "active": True
         }]
         engine = ActionEngine(minimal_agent_path, actions_list=actions)
-        result = engine.execute_action_directly("ping", {})
+        result = await engine.execute_action_directly("ping", {})
         assert "ping" in result.lower()
