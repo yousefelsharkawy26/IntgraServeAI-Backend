@@ -16,8 +16,8 @@ from services.ticket_service import TicketService
 from utils.schemas.ticket_schemas import ExternalTicketCreate
 from utils.ai_config_adapter import AIConfigAdapter
 
-from Backend.ai_engine.action_engine import ActionEngine
-from Backend.ai_engine.agent_runner import AgentRunner
+from ai_engine.action_engine import ActionEngine
+from ai_engine.agent_runner import AgentRunner
 from langchain_core.messages import (
     HumanMessage, AIMessage, SystemMessage, ToolMessage,
     messages_from_dict, message_to_dict
