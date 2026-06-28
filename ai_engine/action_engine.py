@@ -13,13 +13,17 @@ from pydantic import create_model, Field, BaseModel, ValidationError, model_vali
 from jsonpath_ng import parse as jsonpath_parse
 from langchain_core.tools import StructuredTool
 
+import ipaddress
+from urllib.parse import urlparse
+from filelock import FileLock
+
 from .config import AgentConfiguration, ActionDefinition, ResponseConfig, EmbeddingConfig
 from .vector_search import generate_embedding, get_vector_driver
 from utils.exceptions import (
     ActionEngineException, MissingField, InvalidActionStructure, ProtoNotFound, MethodNotFound, ServiceNotFound,
     PathParamNotFound, BodyParamOnGetRequest, ActionRequiresConfirmationError,
     ParsingException, VectorSearchError, ExecutionException, EmbeddingGenerationError,
-    UnsupportedDatabaseDriver, ActionNotFound, ActionNotActive, CorrelationIdAdapter
+    UnsupportedDatabaseDriver, ActionNotFound, ActionNotActive, CorrelationIdAdapter, SSRFVulnerabilityError
 )
 
 logger = CorrelationIdAdapter(logging.getLogger(__name__))
@@ -68,6 +72,31 @@ class ActionEngine:
                 raise InvalidActionStructure(f"Invalid value at {field_path}: {msg}")
 
         raise InvalidActionStructure(f"{context_msg}: {str(e)}")
+    
+    def _validate_url_safety(self, url: str) -> None:
+        """Validates URLs to prevent Server-Side Request Forgery (SSRF)."""
+        parsed = urlparse(url)
+        if parsed.scheme not in ("http", "https"):
+            raise SSRFVulnerabilityError(f"Unsupported URL scheme: {parsed.scheme}")
+
+        hostname = parsed.hostname
+        if not hostname:
+            raise SSRFVulnerabilityError("Invalid URL: No hostname provided.")
+        
+        defaults = self.agent_config.global_defaults.api_request
+        allowed_hosts = defaults.allowed_hostnames
+
+        # Block obvious local/private hostnames unless explicitly bypassed
+        forbidden_hosts = ["localhost", "127.0.0.1", "0.0.0.0", "::1"]
+        if (hostname.lower() not in allowed_hosts) and (hostname.lower() in forbidden_hosts):
+            raise SSRFVulnerabilityError(f"Access to internal hostname '{hostname}' is forbidden.")
+
+        try:
+            ip = ipaddress.ip_address(hostname)
+            if (hostname.lower() not in allowed_hosts) and (ip.is_private or ip.is_loopback):
+                raise SSRFVulnerabilityError(f"Access to private IP '{hostname}' is forbidden.")
+        except ValueError:
+            pass
 
     def _load_agent_config(self, path: str) -> AgentConfiguration:
         try:
@@ -137,16 +166,20 @@ class ActionEngine:
         pb2_grpc_name = proto_file.replace('.proto', '_pb2_grpc')
         pb2_path = os.path.join(out_dir, f"{pb2_name}.py")
         
-        if not os.path.exists(pb2_path):
-            protoc_args = [
-                'grpc_tools.protoc',
-                f'-I{proto_dir}',
-                f'--python_out={out_dir}',
-                f'--grpc_python_out={out_dir}',
-                abs_proto_path
-            ]
-            if protoc.main(protoc_args) != 0:
-                raise ExecutionException(f"Failed to compile proto file: {proto_file}")
+        # Thread/Process-safe lock to prevent Uvicorn workers from corrupting the file
+        lock_path = os.path.join(out_dir, ".compile.lock")
+        
+        with FileLock(lock_path):
+            if not os.path.exists(pb2_path):
+                protoc_args = [
+                    'grpc_tools.protoc',
+                    f'-I{proto_dir}',
+                    f'--python_out={out_dir}',
+                    f'--grpc_python_out={out_dir}',
+                    abs_proto_path
+                ]
+                if protoc.main(protoc_args) != 0:
+                    raise ExecutionException(f"Failed to compile proto file: {proto_file}")
 
         sys.path.insert(0, out_dir)
         try:
@@ -321,8 +354,11 @@ class ActionEngine:
             if re.search(r'\{[^{}]+\}', url):
                 raise PathParamNotFound(f"URL contains unresolved path parameters: {url}")
 
+        self._validate_url_safety(url)
+
+        # Sanitize query parameters to prevent injection
         query_params = {
-            k: v for k, v in kwargs.items()
+            k: self._sanitize_path_param(k, v) for k, v in kwargs.items()
             if action.parameters[k].param_type == "query" and v is not None
         }
 

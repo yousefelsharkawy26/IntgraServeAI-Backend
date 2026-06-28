@@ -19,9 +19,9 @@ from utils.ai_config_adapter import AIConfigAdapter
 
 from ai_engine.action_engine import ActionEngine
 from ai_engine.agent_runner import AgentRunner
+from langchain_core.tools import ToolException
 from langchain_core.messages import (
-    HumanMessage, AIMessage, SystemMessage, ToolMessage,
-    messages_from_dict, message_to_dict
+    HumanMessage, AIMessage, messages_from_dict, message_to_dict
 )
 
 logger = logging.getLogger(__name__)
@@ -222,74 +222,90 @@ class AIGatewayService:
     ) -> str:
         ticket_service = TicketService(db)
 
+        # --- INTERNAL ACTION HANDLERS ---
+        async def _create_support_ticket():
+            ticket_data = ExternalTicketCreate(
+                customer_email=customer_email,
+                customer_name=customer_name,
+                title=params.get("title", "Support Request from Chat"),
+                description=params.get("description", "No description provided."),
+                priority=TicketPriority.MEDIUM
+            )
+            ticket = await ticket_service.create_external_ticket(ticket_data)
+            return f"Support ticket created successfully. Ticket ID: {ticket.id}"
+
+        async def _create_technical_ticket():
+            ticket_data = ExternalTicketCreate(
+                customer_email=customer_email,
+                customer_name=customer_name,
+                title=params.get("title", "Technical Issue from Chat"),
+                description=params.get("description", "No description provided."),
+                priority=TicketPriority.HIGH
+            )
+            ticket = await ticket_service.create_external_ticket(ticket_data)
+            return f"Technical ticket created successfully. Ticket ID: {ticket.id}"
+
+        async def _check_ticket_status():
+            tickets, total = await ticket_service.get_external_customer_tickets(
+                customer_email=customer_email, page=1, limit=10
+            )
+            if not tickets:
+                return "You don't have any active tickets at the moment."
+            status_lines = [f"{t['title']}: {t['status']}" for t in tickets]
+            return "Your tickets: " + "; ".join(status_lines)
+
+        async def _search_tickets():
+            tickets, total = await ticket_service.get_external_customer_tickets(
+                customer_email=customer_email, page=1, limit=10
+            )
+            query = params.get("query", "").lower()
+            matching = [t for t in tickets if query in t["title"].lower()]
+            if not matching:
+                return f"No tickets found matching '{params.get('query', '')}'."
+            return "Matching tickets: " + "; ".join(
+                [f"{t['title']} ({t['status']})" for t in matching]
+            )
+
+        async def _escalate_to_human():
+            ticket_data = ExternalTicketCreate(
+                customer_email=customer_email,
+                customer_name=customer_name,
+                title="Escalation from AI Agent",
+                description=params.get("reason", "Customer requested human agent."),
+                priority=TicketPriority.URGENT
+            )
+            ticket = await ticket_service.create_external_ticket(ticket_data)
+            return (
+                f"I've transferred you to a human agent. "
+                f"Your escalation ticket ID is {ticket.id}. "
+                f"An agent will contact you shortly."
+            )
+
+        async def _request_confirmation():
+            return "Please confirm to proceed."
+
+        # --- DISPATCHER ---
+        handlers = {
+            "create_support_ticket": _create_support_ticket,
+            "create_technical_ticket": _create_technical_ticket,
+            "check_ticket_status": _check_ticket_status,
+            "search_tickets": _search_tickets,
+            "escalate_to_human": _escalate_to_human,
+            "request_confirmation": _request_confirmation
+        }
+
+        handler = handlers.get(action_name)
+        if not handler:
+            return f"Internal action '{action_name}' executed (No handler defined). Params: {params}"
+
         try:
-            if action_name == "create_support_ticket":
-                ticket_data = ExternalTicketCreate(
-                    customer_email=customer_email,
-                    customer_name=customer_name,
-                    title=params.get("title", "Support Request from Chat"),
-                    description=params.get("description", "No description provided."),
-                    priority=TicketPriority.MEDIUM
-                )
-                ticket = await ticket_service.create_external_ticket(ticket_data)
-                return f"Support ticket created successfully. Ticket ID: {ticket.id}"
-
-            elif action_name == "create_technical_ticket":
-                ticket_data = ExternalTicketCreate(
-                    customer_email=customer_email,
-                    customer_name=customer_name,
-                    title=params.get("title", "Technical Issue from Chat"),
-                    description=params.get("description", "No description provided."),
-                    priority=TicketPriority.HIGH
-                )
-                ticket = await ticket_service.create_external_ticket(ticket_data)
-                return f"Technical ticket created successfully. Ticket ID: {ticket.id}"
-
-            elif action_name == "check_ticket_status":
-                tickets, total = await ticket_service.get_external_customer_tickets(
-                    customer_email=customer_email, page=1, limit=10
-                )
-                if not tickets:
-                    return "You don't have any active tickets at the moment."
-                status_lines = [f"{t['title']}: {t['status']}" for t in tickets]
-                return "Your tickets: " + "; ".join(status_lines)
-
-            elif action_name == "search_tickets":
-                tickets, total = await ticket_service.get_external_customer_tickets(
-                    customer_email=customer_email, page=1, limit=10
-                )
-                query = params.get("query", "").lower()
-                matching = [t for t in tickets if query in t["title"].lower()]
-                if not matching:
-                    return f"No tickets found matching '{params.get('query', '')}'."
-                return "Matching tickets: " + "; ".join(
-                    [f"{t['title']} ({t['status']})" for t in matching]
-                )
-
-            elif action_name == "escalate_to_human":
-                ticket_data = ExternalTicketCreate(
-                    customer_email=customer_email,
-                    customer_name=customer_name,
-                    title="Escalation from AI Agent",
-                    description=params.get("reason", "Customer requested human agent."),
-                    priority=TicketPriority.URGENT
-                )
-                ticket = await ticket_service.create_external_ticket(ticket_data)
-                return (
-                    f"I've transferred you to a human agent. "
-                    f"Your escalation ticket ID is {ticket.id}. "
-                    f"An agent will contact you shortly."
-                )
-
-            elif action_name == "request_confirmation":
-                return "Please confirm to proceed."
-
-            else:
-                return f"Internal action '{action_name}' executed. Params: {params}"
-
+            result = await handler()
+            await db.commit()  # Ensure successful completion is saved
+            return result
         except Exception as e:
-            logger.error(f"Internal action {action_name} failed: {e}", exc_info=True)
-            return f"Sorry, I couldn't complete that action due to an error: {str(e)}"
+            await db.rollback()  # Instantly rollback any partial DB inserts
+            logger.error(f"Internal action '{action_name}' failed: {e}", exc_info=True)
+            raise ToolException(f"Action '{action_name}' encountered a system error: {str(e)}")
 
     # ==================== Paused Action Execution ====================
 

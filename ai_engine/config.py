@@ -206,6 +206,7 @@ class SystemContext(BaseModel):
     tone: str
 
 class ApiRequestDefaults(BaseModel):
+    allowed_hostnames: List[str] = []
     protocol: str = "https"
     base_url: str = ""
     timeout: int = 10000

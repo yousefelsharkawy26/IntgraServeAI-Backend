@@ -7,6 +7,7 @@
   },
   "global_defaults": {
     "api_request": {
+      "allowed_hostnames": [],
       "protocol": "https",
       "base_url": "api.shopeasy.com/v1",
       "timeout": 10000,

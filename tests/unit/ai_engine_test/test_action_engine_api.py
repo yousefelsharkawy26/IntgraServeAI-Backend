@@ -122,7 +122,7 @@ class TestApiRequestExecution:
         await engine.execute_action_directly("search", {"q": "shoes", "limit": 10})
 
         call_args = mock_requests.call_args
-        assert call_args.kwargs["params"] == {"q": "shoes", "limit": 10}
+        assert call_args.kwargs["params"] == {"q": "shoes", "limit": '10'}
 
     async def test_null_query_params_excluded(self, minimal_agent_path, mock_requests):
         actions = [{

@@ -34,6 +34,7 @@ def api_agent_config(write_temp_json):
         "system_context": {"title": "T", "description": "D", "version": "1", "tone": "neutral"},
         "global_defaults": {
             "api_request": {
+                "allowed_hostnames": ["127.0.0.1"],
                 "protocol": "https",
                 "base_url": "",
                 "timeout": 10000,

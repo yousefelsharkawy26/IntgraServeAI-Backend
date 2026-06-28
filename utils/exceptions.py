@@ -80,6 +80,11 @@ class ExecutionException(ActionEngineException):
     pass
 
 
+class SSRFVulnerabilityError(ExecutionException):
+    """Raised when an API URL fails Server-Side Request Forgery (SSRF) safety checks."""
+    pass
+
+
 class PathParamNotFound(ExecutionException):
     """Exception when path parameter is not found during execution."""
     pass
