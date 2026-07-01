@@ -1,8 +1,12 @@
 # models/base.py
-from sqlalchemy import Column, DateTime, func
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy import Column, DateTime, func, JSON
+from sqlalchemy.types import Uuid as UUID
+from sqlalchemy.dialects.postgresql import JSONB
 from core.database import Base
 import uuid
+
+# Define a JSON type that degrades gracefully to standard JSON on non-Postgres databases
+JSONVariant = JSON().with_variant(JSONB, 'postgresql')
 
 
 class BaseModel(Base):

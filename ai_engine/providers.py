@@ -15,6 +15,9 @@ logger = CorrelationIdAdapter(logging.getLogger(__name__))
 
 
 class BaseProvider(ABC):
+    env_key_name: str = ""
+    requires_api_key_for_remote: bool = True
+
     @abstractmethod
     def get_llm(self, config: LLMConfig) -> BaseChatModel:
         pass
@@ -28,35 +31,51 @@ class BaseProvider(ABC):
         
         Raises:
             ProviderConfigurationError: If model_name is missing/invalid or
-                a remote API key is absent.
+                a remote API key is absent and not found in the environment.
         """
         if not config.model_name or not isinstance(config.model_name, str):
             raise ProviderConfigurationError(
                 f"model_name must be a non-empty string, got {config.model_name!r}"
             )
-        if config.location == "remote" and not config.api_key:
-            raise ProviderConfigurationError(
-                f"API key is required for remote {self.__class__.__name__}"
-            )
+        
+        if config.location == "remote" and self.requires_api_key_for_remote and not config.api_key:
+            if self.env_key_name and os.getenv(self.env_key_name):
+                # Auto-inject the API key from the environment into the config object
+                config.api_key = os.getenv(self.env_key_name)
+            else:
+                env_msg = f" or via the {self.env_key_name} environment variable" if self.env_key_name else ""
+                raise ProviderConfigurationError(
+                    f"API key is required for remote {self.__class__.__name__}. "
+                    f"Set it in the config{env_msg}."
+                )
 
     def _validate_embedding_config(self, config: EmbeddingConfig) -> None:
         """Validate embedding configuration before instantiation.
         
         Raises:
             ProviderConfigurationError: If model_name is missing/invalid or
-                a remote API key is absent.
+                a remote API key is absent and not found in the environment.
         """
         if not config.model_name or not isinstance(config.model_name, str):
             raise ProviderConfigurationError(
                 f"model_name must be a non-empty string, got {config.model_name!r}"
             )
-        if config.location == "remote" and not config.api_key:
-            raise ProviderConfigurationError(
-                f"API key is required for remote {self.__class__.__name__} embeddings"
-            )
+            
+        if config.location == "remote" and self.requires_api_key_for_remote and not config.api_key:
+            if self.env_key_name and os.getenv(self.env_key_name):
+                # Auto-inject the API key from the environment into the config object
+                config.api_key = os.getenv(self.env_key_name)
+            else:
+                env_msg = f" or via the {self.env_key_name} environment variable" if self.env_key_name else ""
+                raise ProviderConfigurationError(
+                    f"API key is required for remote {self.__class__.__name__} embeddings. "
+                    f"Set it in the config{env_msg}."
+                )
 
 
 class OpenAIProvider(BaseProvider):
+    env_key_name = "OPENAI_API_KEY"
+
     def get_llm(self, config: LLMConfig) -> BaseChatModel:
         self._validate_llm_config(config)
         from langchain_openai import ChatOpenAI
@@ -78,6 +97,8 @@ class OpenAIProvider(BaseProvider):
 
 
 class GroqProvider(BaseProvider):
+    env_key_name = "GROQ_API_KEY"
+
     def get_llm(self, config: LLMConfig) -> BaseChatModel:
         self._validate_llm_config(config)
         from langchain_groq import ChatGroq
@@ -93,6 +114,10 @@ class GroqProvider(BaseProvider):
 
 
 class OllamaProvider(BaseProvider):
+    # Ollama typically does not require an API key even for remote servers 
+    # unless you have a custom auth proxy in front of it.
+    requires_api_key_for_remote = False
+
     def _get_base_url(self, config) -> str:
         base_url = "http://localhost:11434"
         if config.local_loading_params and config.local_loading_params.base_url:
@@ -123,6 +148,8 @@ class OllamaProvider(BaseProvider):
 
 
 class GoogleProvider(BaseProvider):
+    env_key_name = "GOOGLE_API_KEY"
+
     def get_llm(self, config: LLMConfig) -> BaseChatModel:
         self._validate_llm_config(config)
         from langchain_google_genai import ChatGoogleGenerativeAI
@@ -143,6 +170,8 @@ class GoogleProvider(BaseProvider):
 
 
 class HuggingFaceProvider(BaseProvider):
+    env_key_name = "HUGGINGFACEHUB_API_TOKEN"
+
     @staticmethod
     @functools.lru_cache(maxsize=32)
     def _cached_hf_download(repo_id: str, filename: str) -> str:

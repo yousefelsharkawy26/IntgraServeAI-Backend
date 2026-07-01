@@ -1,8 +1,8 @@
 # models/system.py
 from sqlalchemy import Column, String, Text, Integer, Boolean, DateTime, ForeignKey, Numeric
 from sqlalchemy.orm import relationship
-from sqlalchemy.dialects.postgresql import UUID, JSONB
-from models.base import BaseModel, TimestampMixin
+from sqlalchemy.types import Uuid as UUID
+from models.base import BaseModel, TimestampMixin, JSONVariant
 import enum
 
 
@@ -41,12 +41,12 @@ class SystemAction(BaseModel, TimestampMixin):
     name = Column(String(255), nullable=False, index=True)
     description = Column(Text, nullable=True)
     endpoint_url = Column(String(1000), nullable=False)
-    request_template = Column(JSONB, nullable=True)
-    response_mapping = Column(JSONB, nullable=True)
+    request_template = Column(JSONVariant, nullable=True)
+    response_mapping = Column(JSONVariant, nullable=True)
     timeout_seconds = Column(Integer, default=30, nullable=False)
     retry_count = Column(Integer, default=3, nullable=False)
     is_active = Column(Boolean, default=True, nullable=False, index=True)
-    meta_data = Column(JSONB, nullable=True)
+    meta_data = Column(JSONVariant, nullable=True)
     
     # Foreign Keys
     system_type_id = Column(UUID(as_uuid=True), ForeignKey('system_types.id', ondelete='CASCADE'), nullable=False, index=True)
@@ -69,8 +69,8 @@ class ActionExecutionLog(BaseModel):
     
     system_action_id = Column(UUID(as_uuid=True), ForeignKey('system_actions.id', ondelete='CASCADE'), nullable=False, index=True)
     external_customer_id = Column(String(255), nullable=True, index=True)
-    request_payload = Column(JSONB, nullable=True)
-    response_payload = Column(JSONB, nullable=True)
+    request_payload = Column(JSONVariant, nullable=True)
+    response_payload = Column(JSONVariant, nullable=True)
     status = Column(String(50), nullable=False, index=True)
     error_message = Column(Text, nullable=True)
     execution_time_ms = Column(Integer, nullable=True)

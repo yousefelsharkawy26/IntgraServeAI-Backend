@@ -1,7 +1,7 @@
 # models/user.py
 from sqlalchemy import Column, String, Boolean, DateTime, Text, ForeignKey, Table
 from sqlalchemy.orm import relationship
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.types import Uuid as UUID
 from models.base import BaseModel, TimestampMixin
 import uuid
 

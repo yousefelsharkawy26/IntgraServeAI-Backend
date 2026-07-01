@@ -1,8 +1,8 @@
 # models/ticket.py
 from sqlalchemy import Column, String, Boolean, DateTime, Text, Integer, Numeric, ForeignKey, Enum as SQLEnum
 from sqlalchemy.orm import relationship
-from sqlalchemy.dialects.postgresql import UUID, JSONB
-from models.base import BaseModel, TimestampMixin
+from sqlalchemy.types import Uuid as UUID
+from models.base import BaseModel, TimestampMixin, JSONVariant
 import enum
 
 
@@ -106,7 +106,7 @@ class TicketMessage(BaseModel):
     sender_email = Column(String(255), nullable=True)
     message_text = Column(Text, nullable=False)
     is_internal_note = Column(Boolean, default=False, nullable=False)
-    attachments = Column(JSONB, nullable=True)
+    attachments = Column(JSONVariant, nullable=True)
     
     # Relationships
     ticket = relationship('Ticket', back_populates='messages')

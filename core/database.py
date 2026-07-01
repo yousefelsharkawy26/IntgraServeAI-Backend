@@ -4,14 +4,22 @@ from sqlalchemy.orm import declarative_base
 from typing import AsyncGenerator
 from core.config import settings
 
-# Create async engine
+# Create async engine based on database type
+engine_kwargs = {
+    "echo": settings.DEBUG,
+    "future": True,
+}
+
+if settings.DATABASE_TYPE.lower() == "postgres":
+    engine_kwargs.update({
+        "pool_pre_ping": True,
+        "pool_size": 10,
+        "max_overflow": 20,
+    })
+
 engine = create_async_engine(
     settings.DATABASE_URL,
-    echo=settings.DEBUG,
-    future=True,
-    pool_pre_ping=True,
-    pool_size=10,
-    max_overflow=20,
+    **engine_kwargs
 )
 
 # Create async session factory

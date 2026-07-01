@@ -2,8 +2,8 @@
 
 from sqlalchemy import Column, String, Boolean, DateTime, Text, Integer, Numeric, ForeignKey, Enum as SQLEnum
 from sqlalchemy.orm import relationship
-from sqlalchemy.dialects.postgresql import UUID, JSONB
-from models.base import BaseModel
+from sqlalchemy.types import Uuid as UUID
+from models.base import BaseModel, JSONVariant
 from models.ticket import SenderType
 import enum
 
@@ -24,8 +24,8 @@ class ChatConversation(BaseModel):
     is_active = Column(Boolean, default=True, nullable=False, index=True)
     started_at = Column(DateTime(timezone=True), nullable=False, index=True)
     ended_at = Column(DateTime(timezone=True), nullable=True)
-    pending_state = Column(JSONB, nullable=True)  # Stores serialized messages + pause metadata
-    ai_context = Column(JSONB, nullable=True)     # Optional metadata for the AI session
+    pending_state = Column(JSONVariant, nullable=True)  # Stores serialized messages + pause metadata
+    ai_context = Column(JSONVariant, nullable=True)     # Optional metadata for the AI session
     
     messages = relationship('ChatMessage', back_populates='conversation', cascade='all, delete-orphan')
     rating = relationship('AgentRating', back_populates='conversation', uselist=False, cascade='all, delete-orphan')
@@ -43,7 +43,7 @@ class ChatMessage(BaseModel):
     message_text = Column(Text, nullable=False)
     confidence_score = Column(Numeric(5, 2), nullable=True)
     intent_detected = Column(String(255), nullable=True)
-    entities_extracted = Column(JSONB, nullable=True)
+    entities_extracted = Column(JSONVariant, nullable=True)
     
     conversation = relationship('ChatConversation', back_populates='messages')
     

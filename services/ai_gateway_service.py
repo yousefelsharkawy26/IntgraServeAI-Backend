@@ -166,7 +166,7 @@ class AIGatewayService:
     ) -> None:
         msg = ChatMessage(
             chat_conversation_id=conversation_id,
-            sender_type=SenderType(sender_type),
+            sender_type=SenderType(sender_type.lower()),
             message_text=text,
             intent_detected=intent_detected,
             entities_extracted=entities_extracted

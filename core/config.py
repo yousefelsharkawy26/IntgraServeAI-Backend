@@ -1,12 +1,18 @@
 # core/config.py
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from typing import Optional, List
+from typing import List
 from pathlib import Path
+from dotenv import load_dotenv
 
+BASE_DIR = Path(__file__).resolve().parent.parent
+ENV_PATH = BASE_DIR / ".env"
+
+# 2. Load environment variables into os.environ system-wide
+load_dotenv(dotenv_path=ENV_PATH)
 
 class Settings(BaseSettings):
-    # Application
+
     APP_NAME: str = "AI Customer Support System"
     APP_VERSION: str = "1.0.0"
     DEBUG: bool = True
@@ -14,16 +20,21 @@ class Settings(BaseSettings):
     FRONTEND_URL: str = "http://localhost:3000"
     
     # Database
-    POSTGRES_USER: str
-    POSTGRES_PASSWORD: str
+    DATABASE_TYPE: str = "postgres"  # "postgres" or "sqlite"
+    SQLITE_FILE_PATH: str = "data/app.db"
+    POSTGRES_USER: str = ""
+    POSTGRES_PASSWORD: str = ""
     POSTGRES_HOST: str = "localhost"
     POSTGRES_PORT: int = 5432
-    POSTGRES_DB: str
+    POSTGRES_DB: str = ""
     
     # Database URL
     @property
     def DATABASE_URL(self) -> str:
+        if self.DATABASE_TYPE.lower() == "sqlite":
+            return f"sqlite+aiosqlite:///{self.SQLITE_FILE_PATH}"
         return f"postgresql+asyncpg://{self.POSTGRES_USER}:{self.POSTGRES_PASSWORD}@{self.POSTGRES_HOST}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
+
     
     # JWT Settings
     SECRET_KEY: str

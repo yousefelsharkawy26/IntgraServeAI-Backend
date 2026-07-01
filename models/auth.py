@@ -1,8 +1,8 @@
 # models/auth.py
 from sqlalchemy import Column, String, Boolean, DateTime, Text
 from sqlalchemy.orm import relationship
-from sqlalchemy.dialects.postgresql import UUID, JSONB
-from models.base import BaseModel, TimestampMixin
+from sqlalchemy.types import Uuid as UUID
+from models.base import BaseModel, TimestampMixin, JSONVariant
 from sqlalchemy import ForeignKey
 
 
@@ -27,7 +27,7 @@ class ApiAuthentication(BaseModel, TimestampMixin):
     name = Column(String(255), nullable=False, index=True)
     encrypted_primary_secret = Column(Text, nullable=False)  # Encrypted API key/token
     encrypted_secondary_secret = Column(Text, nullable=True)  # For OAuth or additional secrets
-    meta_data = Column(JSONB, nullable=True)  # Additional auth data
+    meta_data = Column(JSONVariant, nullable=True)  # Additional auth data
     is_active = Column(Boolean, default=True, nullable=False, index=True)
     
     # Foreign Keys
