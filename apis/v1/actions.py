@@ -1,6 +1,7 @@
 # apis/v1/actions.py
 from fastapi import APIRouter, Depends, status, Query, Body
 from typing import Optional, Dict, Any, List
+from functools import lru_cache
 
 from services.action_service import ActionService
 from utils.schemas.action_schemas import (
@@ -32,8 +33,9 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 
+@lru_cache()
 def get_action_service() -> ActionService:
-    """Dependency to get ActionService instance"""
+    """Dependency to get ActionService singleton instance"""
     return ActionService()
 
 

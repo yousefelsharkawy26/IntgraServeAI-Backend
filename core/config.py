@@ -67,28 +67,39 @@ class Settings(BaseSettings):
     
     @property
     def ACTIONS_FILE_FULL_PATH(self) -> Path:
-        """Get full path to actions file"""
-        return Path(self.ACTIONS_FILE_PATH)
+        """Get full path to actions file, anchored to project root if relative"""
+        path = Path(self.ACTIONS_FILE_PATH)
+        if not path.is_absolute():
+            path = BASE_DIR / path
+        return path
     
     @property
     def ACTIONS_BACKUP_DIR(self) -> Path:
-        """Get backup directory path"""
-        return Path(self.ACTIONS_FILE_PATH).parent / "backups"
+        """Get backup directory path, anchored to project root if relative"""
+        path = Path(self.ACTIONS_FILE_PATH)
+        if not path.is_absolute():
+            path = BASE_DIR / path
+        return path.parent / "backups"
 
-    # ✅ Agent Configuration
     AGENT_CONFIG_FILE_PATH: str = "data/agent_config.json"
     AGENT_CONFIG_BACKUP_ENABLED: bool = True
     AGENT_CONFIG_BACKUP_COUNT: int = 5
 
     @property
     def AGENT_CONFIG_FILE_FULL_PATH(self) -> Path:
-        """Get full path to agent config file"""
-        return Path(self.AGENT_CONFIG_FILE_PATH)
+        """Get full path to agent config file, anchored to project root if relative"""
+        path = Path(self.AGENT_CONFIG_FILE_PATH)
+        if not path.is_absolute():
+            path = BASE_DIR / path
+        return path
     
     @property
     def AGENT_CONFIG_BACKUP_DIR(self) -> Path:
-        """Get agent config backup directory path"""
-        return Path(self.AGENT_CONFIG_FILE_PATH).parent / "backups"
+        """Get agent config backup directory path, anchored to project root if relative"""
+        path = Path(self.AGENT_CONFIG_FILE_PATH)
+        if not path.is_absolute():
+            path = BASE_DIR / path
+        return path.parent / "backups"
 
     model_config = SettingsConfigDict(
         env_file=".env",

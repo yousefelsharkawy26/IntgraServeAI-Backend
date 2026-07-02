@@ -241,3 +241,17 @@ class AgentConfiguration(BaseModel):
     system_context: SystemContext
     global_defaults: GlobalDefaults
     llm_config: Optional[LLMConfig] = None
+
+class ActionsConfiguration(BaseModel):
+    """
+    Root model to support the structure defined in actions.json.
+    """
+    version: str
+    last_updated: Optional[str] = None
+    actions: Dict[str, ActionDefinition]
+
+    @model_validator(mode='before')
+    @classmethod
+    def inject_secrets(cls, values):
+        """Inject environment variables recursively at the top level"""
+        return inject_env(values)

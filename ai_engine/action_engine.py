@@ -17,7 +17,7 @@ import ipaddress
 from urllib.parse import urlparse
 from filelock import FileLock
 
-from .config import AgentConfiguration, ActionDefinition, ResponseConfig, EmbeddingConfig
+from .config import AgentConfiguration, ActionDefinition, ResponseConfig, EmbeddingConfig, ActionsConfiguration
 from .vector_search import generate_embedding, get_vector_driver
 from utils.exceptions import (
     ActionEngineException, MissingField, InvalidActionStructure, ProtoNotFound, MethodNotFound, ServiceNotFound,
@@ -119,20 +119,24 @@ class ActionEngine:
             with open(path, "r") as f:
                 data = json.load(f)
 
-            if not isinstance(data, list):
-                raise InvalidActionStructure("Actions config must be a list of objects")
+            # The root must be a dictionary (JSON object)
+            if not isinstance(data, dict):
+                raise InvalidActionStructure("Actions config must be a JSON object")
 
-            return self._parse_actions_list(data)
+            config = ActionsConfiguration(**data)
+            return list(config.actions.values())
 
         except FileNotFoundError:
             raise ParsingException(f"Actions config file not found at {path}")
         except json.JSONDecodeError as e:
             raise ParsingException(f"Invalid JSON in actions config: {e}")
+        except ValidationError as e:
+            self._handle_validation_error(e, "Actions Config Validation Failed")
         except ActionEngineException as e:
             raise e
         except Exception as e:
             raise ParsingException(f"Failed to load actions config: {e}")
-
+        
     def _parse_actions_list(self, actions_list: List[Dict]) -> List[ActionDefinition]:
         actions = []
         for index, item in enumerate(actions_list):
@@ -141,7 +145,14 @@ class ActionEngine:
                     raise InvalidActionStructure(
                         f"Action at index {index} must be a dict, got {type(item).__name__}"
                     )
-                actions.append(ActionDefinition(**item))
+                
+                # Create a copy to avoid mutating the original dict from the database
+                action_data = item.copy()
+                
+                # Filter out internal DB fields before applying to the Pydantic model
+                action_data.pop("_backend_id", None)
+                
+                actions.append(ActionDefinition(**action_data))
             except ValidationError as e:
                 self._handle_validation_error(e, f"Error in Action at index {index}")
             except ActionEngineException as e:
@@ -583,9 +594,11 @@ class ActionEngine:
                 return sync_runner, async_runner
             
             args_schema = self._create_args_schema(action.parameters)
+            sync_func, async_func = make_runner(action)
 
             tool = StructuredTool.from_function(
-                func=make_runner(action),
+                func=sync_func,
+                coroutine=async_func,
                 name=action.name,
                 description=action.description,
                 args_schema=args_schema,

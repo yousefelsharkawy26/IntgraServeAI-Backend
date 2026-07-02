@@ -60,6 +60,7 @@ class AgentConfigService:
         self.backup_enabled = settings.AGENT_CONFIG_BACKUP_ENABLED
         self.backup_count = settings.AGENT_CONFIG_BACKUP_COUNT
         self.lock_path = self.file_path.with_suffix('.lock')
+        self._cache: Optional[Dict[str, Any]] = None
         self._ensure_file_and_dirs()
 
     def _ensure_file_and_dirs(self):
@@ -74,10 +75,13 @@ class AgentConfigService:
             raise ServerException(f"Could not initialize configuration file: {e}")
 
     def _load_data(self) -> Dict[str, Any]:
+        if self._cache is not None:
+            return copy.deepcopy(self._cache)
         with FileLock(self.lock_path):
             try:
                 with open(self.file_path, 'r', encoding='utf-8') as f:
-                    return json.load(f)
+                    self._cache = json.load(f)
+                return copy.deepcopy(self._cache)
             except (json.JSONDecodeError, FileNotFoundError) as e:
                 self._ensure_file_and_dirs()
                 return self._load_data()
@@ -90,6 +94,7 @@ class AgentConfigService:
             try:
                 with open(self.file_path, 'w', encoding='utf-8') as f:
                     json.dump(data, f, indent=2, ensure_ascii=False, default=str)
+                self._cache = copy.deepcopy(data)
             except Exception as e:
                 raise ServerException(f"Failed to write to configuration file: {e}")
         return backup_filename
@@ -127,20 +132,20 @@ class AgentConfigService:
             validated_data = schemas.AgentConfig.model_validate(config_data).model_dump()
             full_data = {**validated_data, "metadata": {"last_updated": datetime.now(timezone.utc), "updated_by": updated_by}}
             result = self._save_data(full_data)
-            
+
             AIGatewayService.reload_engine()
-            
+
             return result
         except (ValueError, ValidationError) as e:
             raise BadRequestException(str(e))
 
     def update_section(self, section_name: str, update_data: Dict, updated_by: UUID) -> Optional[str]:
         current_config = self._load_data()
-        
+
         current_section = current_config.get(section_name, {})
         if not isinstance(current_section, dict):
             current_section = {}
-            
+
         merged_section = deep_merge(source=update_data, destination=current_section)
         current_config[section_name] = merged_section
 
@@ -172,7 +177,7 @@ class AgentConfigService:
             validated = schemas.AgentConfig.model_validate(content)
         except (ValueError, ValidationError) as e:
             raise BadRequestException(f"Backup '{filename}' has invalid structure: {e}")
-        
+
         current_backup = self._create_backup()
         content.setdefault("metadata", {})["last_updated"] = datetime.now(timezone.utc)
         content["metadata"]["updated_by"] = updated_by
@@ -180,7 +185,7 @@ class AgentConfigService:
         self._save_data(content, backup=False)
 
         AIGatewayService.reload_engine()
-        
+
         return filename, current_backup
 
     def delete_backup(self, filename: str) -> None:

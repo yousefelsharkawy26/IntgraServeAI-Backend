@@ -3,6 +3,7 @@
 from fastapi import APIRouter, Depends, status, Body
 from typing import Dict, Any
 from uuid import UUID
+from functools import lru_cache
 
 from services.agent_config_service import AgentConfigService
 from utils.dependencies import require_admin
@@ -16,6 +17,7 @@ import logging
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
+@lru_cache()
 def get_config_service() -> AgentConfigService:
     return AgentConfigService()
 
