@@ -1,0 +1,62 @@
+{
+  "metadata": {
+    "version": "1.0.0"
+  },
+  "system_context": {
+    "title": "ShopEasy Virtual Assistant",
+    "description": "You are the AI assistant for ShopEasy. You can check order statuses, process refunds, and search the product catalog using semantic search. Always confirm before processing refunds.",
+    "version": "1.0",
+    "tone": "Professional, helpful, and concise."
+  },
+  "global_defaults": {
+    "api_request": {
+      "allowed_hostnames": ["localhost", "127.0.0.1"],
+      "protocol": "http",
+      "base_url": "localhost:8001/v1",
+      "timeout": 5000,
+      "headers": {
+        "Content-Type": "application/json",
+        "Authorization": "Bearer {{env.SHOPEASY_API_KEY}}"
+      },
+      "on_error": "I couldn't reach the ShopEasy API. Error: {{error}}"
+    },
+    "rpc_request": {
+      "protocol": "grpc",
+      "headers": {
+        "x-admin-key": "{{env.ADMIN_RPC_KEY}}"
+      },
+      "on_error": "I couldn't reach the secure internal service. Error: {{error}}"
+    },
+    "vector_query": {
+      "connector": "sqlite",
+      "connection_string": "tests/MOCK_ShopEasy_api/shopeasy.db",
+      "embedding_config": {
+        "location": "local",
+        "provider": "ollama",
+        "model_name": "nomic-embed-text",
+        "dimensions": 768,
+        "rate_limit_delay_seconds": 0,
+        "local_loading_params": {
+          "base_url": "http://localhost:11434/v1",
+          "gguf_file": "nomic-embed-text-v1.5.f16.gguf",
+          "context_window": 8192,
+          "gpu_layers": 35,
+          "quantization": "f16"
+        }
+      },
+      "on_error": "I had trouble searching the catalog. Error: {{error}}"
+    },
+    "internal": {
+      "on_error": "Internal action failed: {{error}}"
+    }
+  },
+  "llm_config": {
+    "location": "remote",
+    "provider": "groq",
+    "model_name": "llama-3.3-70b-versatile",
+    "temperature": 0.2,
+    "max_tokens": 1024,
+    "api_key": "{{env.GROQ_API_KEY}}",
+    "system_prompt_template": "Identity: {{title}}\nRole: {{description}}\nTone: {{tone}}"
+  }
+}

@@ -1,0 +1,106 @@
+{
+  "version": "2.0",
+  "last_updated": null,
+  "actions": {
+    "ACT-001": {
+      "name": "get_order_details",
+      "description": "Retrieves the status and items of a specific order using the order ID.",
+      "type": "api_request",
+      "active": true,
+      "requires_confirmation": false,
+      "execution_config": {
+        "method": "GET",
+        "url": "/orders/{order_id}"
+      },
+      "parameters": {
+        "order_id": {
+          "type": "string",
+          "required": true,
+          "param_type": "path",
+          "description": "The unique order identifier (e.g., ORD-123)"
+        }
+      },
+      "response_config": {
+        "mode": "json",
+        "values": {
+          "status": {
+            "type": "string",
+            "path": "status"
+          },
+          "delivery_date": {
+            "type": "string",
+            "path": "estimated_delivery"
+          }
+        },
+        "template": "Your order is currently '{{status}}' and is estimated to be delivered on {{delivery_date}}.",
+        "on_error": "Could not find an order with that ID."
+      }
+    },
+    "ACT-002": {
+      "name": "process_refund",
+      "description": "Securely processes a refund for a given order.",
+      "type": "rpc_request",
+      "active": true,
+      "requires_confirmation": true,
+      "execution_config": {
+        "host": "localhost:50051",
+        "service": "PaymentGateway",
+        "method": "ProcessRefund",
+        "proto_file": "./tests/MOCK_ShopEasy_api/shopeasy.proto"
+      },
+      "parameters": {
+        "order_id": {
+          "type": "string",
+          "required": true,
+          "param_type": "message_field",
+          "description": "The ID of the order being refunded."
+        },
+        "amount": {
+          "type": "number",
+          "required": true,
+          "param_type": "message_field",
+          "description": "The monetary amount to refund."
+        }
+      },
+      "response_config": {
+        "mode": "json",
+        "values": {
+          "success": {
+            "type": "string",
+            "path": "success"
+          },
+          "transaction_id": {
+            "type": "string",
+            "path": "transaction_id"
+          }
+        },
+        "template": "Refund processed! Status: {{success}}. Transaction ID: {{transaction_id}}.",
+        "on_error": "Failed to process the refund securely."
+      }
+    },
+    "ACT-003": {
+      "name": "search_products",
+      "description": "Performs a semantic search to find products in the catalog based on a natural language description.",
+      "type": "vector_query",
+      "active": true,
+      "requires_confirmation": false,
+      "execution_config": {
+        "collection_name": "products_embeddings",
+        "max_results": 3
+      },
+      "parameters": {
+        "topic": {
+          "type": "string",
+          "required": true,
+          "param_type": "vector",
+          "description": "What the user is looking for (e.g., 'warm winter jacket')"
+        }
+      },
+      "response_config": {
+        "mode": "raw",
+        "template": "Here are the top products I found:\n{{value}}",
+        "on_error": "I couldn't search the catalog right now."
+      }
+    }
+  }
+}

@@ -385,4 +385,4 @@ class AIGatewayService:
                     action_name, params, db, customer_email, customer_name
                 )
         else:
-            return await engine.execute_action_directly(action_name, params)
+            return await engine.execute_action_directly(action_name, params, skip_confirmation=True)

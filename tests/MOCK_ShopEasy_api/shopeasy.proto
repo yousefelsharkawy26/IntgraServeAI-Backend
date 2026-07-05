@@ -1,0 +1,18 @@
+syntax = "proto3";
+
+package shopeasy;
+
+service PaymentGateway {
+  // Processes a refund securely
+  rpc ProcessRefund (RefundRequest) returns (RefundResponse);
+}
+
+message RefundRequest {
+  string order_id = 1;
+  double amount = 2;
+}
+
+message RefundResponse {
+  bool success = 1;
+  string transaction_id = 2;
+}
