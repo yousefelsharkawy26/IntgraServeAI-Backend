@@ -220,7 +220,7 @@ class AgentRunner:
                         **pending_pause,
                         "correlation_id": get_correlation_id(),
                         "_resume_state": {
-                            "assistant_message": ai_message_chunk,
+                            "assistant_message": ai_message_chunk.model_dump(mode="json") if hasattr(ai_message_chunk, "model_dump") else str(ai_message_chunk),
                             "completed_tool_results": [
                                 {"tool_call_id": tid, "content": content}
                                 for tid, content in tool_results

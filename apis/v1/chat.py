@@ -59,7 +59,8 @@ async def chat_websocket(websocket: WebSocket):
             runner = gateway.create_runner(customer_email, customer_name)
             try:
                 async for event in runner.stream_chat(messages_state, cancel_token=cancel_token):
-                    await websocket.send_json(event)
+                    ws_event = {k: v for k, v in event.items() if k != "_resume_state"}
+                    await websocket.send_json(ws_event)
                     
                     if event["type"] == "pause":
                         async with AsyncSessionLocal() as db:
