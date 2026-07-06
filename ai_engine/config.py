@@ -29,7 +29,7 @@ class ActionParameter(BaseModel):
     type: Literal["string", "integer", "number", "boolean", "array", "object"]
     required: bool = False
     default: Optional[Any] = None
-    param_type: Literal["query", "body", "path", "vector", "message_field"]
+    param_type: Literal["query", "body", "path", "vector", "message_field", "internal"]
     description: str
     enum: Optional[List[Any]] = None
 

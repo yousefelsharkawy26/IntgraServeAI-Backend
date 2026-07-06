@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.database import AsyncSessionLocal, get_db
 from services.ai_gateway_service import AIGatewayService
-from langchain_core.messages import HumanMessage, ToolMessage
+from langchain_core.messages import HumanMessage, ToolMessage, AIMessage
 from utils.exceptions import MessageNotFoundException, MessageNotEditableException
 
 router = APIRouter()
@@ -128,11 +128,42 @@ async def chat_websocket(websocket: WebSocket):
                 cancel_token.clear()
                 msgs, p_data, approved = state["messages"], state["pause_data"], msg.get("approved", False)
 
+                resume_state = p_data.get("_resume_state", {})
+                if resume_state:
+                    ast_msg = resume_state.get("assistant_message", {})
+                    if isinstance(ast_msg, dict):
+                        msgs.append(AIMessage(
+                            content=ast_msg.get("content", ""),
+                            tool_calls=ast_msg.get("tool_calls", [])
+                        ))
+                    
+                    for tr in resume_state.get("completed_tool_results", []):
+                        msgs.append(ToolMessage(content=tr["content"], tool_call_id=tr["tool_call_id"]))
+
+                tool_call_id = p_data.get("tool_call_id", "unknown")
+
                 if approved:
-                    result = await gateway.execute_paused_action(p_data, customer_email, customer_name)
-                    msgs.append(ToolMessage(content=result, tool_call_id=p_data.get("tool_call_id", "unknown")))
+                    if p_data.get("action_name") in ["create_support_ticket", "create_technical_ticket"]:
+                        async with AsyncSessionLocal() as db:
+                            await gateway.clear_pending_state(db, conversation_id)
+                        
+                        await websocket.send_json({
+                            "type": "show_ticket_dialogue",
+                            "action_name": p_data.get("action_name"),
+                            "params": p_data.get("params", {})
+                        })
+                        continue
+
+                    try:
+                        result = await gateway.execute_paused_action(p_data, customer_email, customer_name)
+                        msgs.append(ToolMessage(content=result, tool_call_id=tool_call_id))
+                    except Exception as e:
+                        msgs.append(ToolMessage(content=f"Action failed: {str(e)}", tool_call_id=tool_call_id))
                 else:
-                    msgs.append(ToolMessage(content=f"User denied action.", tool_call_id=p_data.get("tool_call_id", "unknown")))
+                    msgs.append(ToolMessage(
+                        content="Action aborted by user. Do not call this tool again. Please acknowledge the user's decision.", 
+                        tool_call_id=tool_call_id
+                    ))
 
                 async with AsyncSessionLocal() as db:
                     await gateway.clear_pending_state(db, conversation_id)
