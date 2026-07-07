@@ -28,6 +28,8 @@ class Settings(BaseSettings):
     POSTGRES_PORT: int = 5432
     POSTGRES_DB: str = ""
     
+    UPLOAD_DIR: str = "./uploads/chat"
+
     # Database URL
     @property
     def DATABASE_URL(self) -> str:

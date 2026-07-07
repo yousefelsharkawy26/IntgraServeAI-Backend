@@ -2,24 +2,26 @@
 """
 Authentication and Authorization Dependencies
 """
-from fastapi import Depends, status
+from fastapi import Depends, Query, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
-from typing import List
+from typing import List, Optional
 from uuid import UUID
 
 from core.database import get_db
-from models.user import User, Role
+from models.chat import ChatConversation
+from models.user import User
 from utils.token_helper import TokenHelper
 from utils.exceptions import UnauthorizedException
 
-security = HTTPBearer()
+
+security_bearer = HTTPBearer(auto_error=False)
 
 
 async def get_current_user(
-    credentials: HTTPAuthorizationCredentials = Depends(security),
+    credentials: HTTPAuthorizationCredentials = Depends(security_bearer),
     db: AsyncSession = Depends(get_db)
 ) -> User:
     """
@@ -120,6 +122,216 @@ class RoleChecker:
             )
         
         return current_user
+    
+
+class CustomerSession:
+    """Represents an authenticated customer session (non-JWT)."""
+    def __init__(self, session_id: str, customer_email: str, conversation_id: Optional[UUID] = None):
+        self.session_id = session_id
+        self.customer_email = customer_email
+        self.conversation_id = conversation_id
+
+
+async def verify_customer_session(
+    session_id: str = Query(..., description="Customer session ID"),
+    customer_email: str = Query(..., description="Customer email address"),
+    db: AsyncSession = Depends(get_db),
+) -> CustomerSession:
+    """
+    Verify that a session_id + customer_email pair is valid.
+    Looks up the conversation to ensure the session exists and belongs to the customer.
+    """
+    if not session_id or not customer_email:
+        raise UnauthorizedException("Session ID and customer email are required")
+
+    result = await db.execute(
+        select(ChatConversation).where(
+            ChatConversation.session_id == session_id,
+            ChatConversation.customer_email == customer_email
+        )
+    )
+    conv = result.scalar_one_or_none()
+
+    if not conv:
+        raise UnauthorizedException("Invalid session or email")
+
+    return CustomerSession(
+        session_id=session_id,
+        customer_email=customer_email,
+        conversation_id=conv.id
+    )
+
+
+async def verify_customer_session_for_conversation(
+    conversation_id: UUID,
+    session_id: str = Query(..., description="Customer session ID"),
+    customer_email: str = Query(..., description="Customer email address"),
+    db: AsyncSession = Depends(get_db),
+) -> CustomerSession:
+    """
+    Verify that the customer owns the specific conversation.
+    Used for endpoints that operate on a specific conversation resource.
+    """
+    if not session_id or not customer_email:
+        raise UnauthorizedException("Session ID and customer email are required")
+
+    result = await db.execute(
+        select(ChatConversation).where(
+            ChatConversation.id == conversation_id,
+            ChatConversation.session_id == session_id,
+            ChatConversation.customer_email == customer_email
+        )
+    )
+    conv = result.scalar_one_or_none()
+
+    if not conv:
+        raise UnauthorizedException("Invalid session, email, or conversation access denied")
+
+    return CustomerSession(
+        session_id=session_id,
+        customer_email=customer_email,
+        conversation_id=conv.id
+    )
+
+async def get_current_active_user_optional(
+    request: Request,
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security_bearer),
+    db: AsyncSession = Depends(get_db),
+) -> Optional[User]:
+    """
+    Try JWT auth from Authorization: Bearer <token> header.
+    Returns None if no token provided or invalid (instead of raising).
+
+    This matches the standard pattern used by get_current_active_user
+    in the rest of your codebase.
+    """
+    # If no Bearer token in header, try query param as fallback (for flexibility)
+    token = None
+    if credentials:
+        token = credentials.credentials
+    else:
+        # Fallback: check query param for cases where headers can't be set
+        token = request.query_params.get("token")
+
+    if not token:
+        return None
+
+    try:
+        payload = TokenHelper.verify_token(token)
+        user_id = payload.get("user_id")
+        if not user_id:
+            return None
+
+        result = await db.execute(select(User).where(User.id == UUID(user_id)))
+        user = result.scalar_one_or_none()
+        if user and user.is_active:
+            return user
+    except Exception:
+        pass
+    return None
+
+
+
+async def verify_customer_session_optional(
+    session_id: Optional[str] = Query(None, description="Customer session ID"),
+    customer_email: Optional[str] = Query(None, description="Customer email address"),
+    db: AsyncSession = Depends(get_db),
+) -> Optional[CustomerSession]:
+    """Try to authenticate via session, return None if no session provided or invalid."""
+    if not session_id or not customer_email:
+        return None
+    try:
+        result = await db.execute(
+            select(ChatConversation).where(
+                ChatConversation.session_id == session_id,
+                ChatConversation.customer_email == customer_email
+            )
+        )
+        conv = result.scalar_one_or_none()
+        if conv:
+            return CustomerSession(
+                session_id=session_id,
+                customer_email=customer_email,
+                conversation_id=conv.id
+            )
+    except Exception:
+        pass
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Unified Chat Access Control
+# ---------------------------------------------------------------------------
+
+class ChatAccess:
+    """
+    Unified access context for chat endpoints.
+
+    Supports dual authentication:
+      - Staff users via JWT (admin, agent roles)
+      - Customers via session_id + customer_email
+    """
+    def __init__(
+        self,
+        user: Optional[User] = None,
+        customer_session: Optional[CustomerSession] = None
+    ):
+        self.user = user
+        self.customer_session = customer_session
+        self.is_staff = user is not None
+        self.is_admin = user is not None and any(r.name == "Admin" for r in user.roles)
+        self.is_agent = user is not None and any(r.name in ("Support User", "Tech User") for r in user.roles)
+
+    def can_access_conversation(self, conv: ChatConversation) -> bool:
+        """Check if the accessor can view a specific conversation."""
+        if self.is_admin or self.is_agent:
+            return True
+        if self.customer_session:
+            return (
+                conv.session_id == self.customer_session.session_id and
+                conv.customer_email == self.customer_session.customer_email
+            )
+        return False
+
+    def can_modify_conversation(self, conv: ChatConversation) -> bool:
+        """Check if the accessor can modify (PATCH/POST messages to) a conversation."""
+        if self.is_admin:
+            return True
+        if self.is_agent:
+            return True  # Agents can modify any active conversation
+        if self.customer_session:
+            return (
+                conv.session_id == self.customer_session.session_id and
+                conv.customer_email == self.customer_session.customer_email and
+                conv.is_active  # Can't modify ended conversations
+            )
+        return False
+
+    def can_delete_conversation(self) -> bool:
+        """Only admins can delete conversations."""
+        return self.is_admin
+
+
+async def get_chat_access(
+    user: Optional[User] = Depends(get_current_active_user_optional),
+    customer_session: Optional[CustomerSession] = Depends(verify_customer_session_optional),
+) -> ChatAccess:
+    """
+    Dual authentication dependency for chat endpoints.
+
+    Accepts EITHER:
+      - JWT bearer token via `token` query param (for staff users)
+      - session_id + customer_email query params (for customers)
+
+    Raises 401 if neither authentication method succeeds.
+    """
+    if user is None and customer_session is None:
+        raise UnauthorizedException(
+            "Authentication required. Provide either a valid JWT token (as 'token' query param) "
+            "or session_id + customer_email query params."
+        )
+
+    return ChatAccess(user=user, customer_session=customer_session)
 
 
 # Pre-defined role checkers

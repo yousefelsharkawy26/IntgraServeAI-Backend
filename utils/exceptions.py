@@ -16,6 +16,8 @@ from fastapi import HTTPException, status
 from typing import Optional, Dict, Any
 import contextvars
 import logging
+from typing import Optional, Set
+from uuid import UUID
 
 
 # =============================================================================
@@ -437,6 +439,47 @@ class ActionNotFoundException(HTTPActionParsingException):
             message=message
         )
 
+class ConversationNotFoundException(Exception):
+    """Raised when a chat conversation cannot be found."""
+
+    def __init__(self, conversation_id: Optional[UUID] = None):
+        self.conversation_id = conversation_id
+        msg = f"Conversation '{conversation_id}' not found" if conversation_id else "Conversation not found"
+        super().__init__(msg)
+
+class AttachmentNotFoundException(Exception):
+    """Raised when a chat attachment cannot be found."""
+
+    def __init__(self, attachment_id: Optional[UUID] = None):
+        self.attachment_id = attachment_id
+        msg = f"Attachment '{attachment_id}' not found" if attachment_id else "Attachment not found"
+        super().__init__(msg)
+
+class InvalidFileTypeException(Exception):
+    """Raised when an uploaded file has a disallowed content type."""
+
+    def __init__(self, content_type: str, allowed: Optional[Set[str]] = None):
+        self.content_type = content_type
+        self.allowed = allowed
+        msg = f"File type '{content_type}' is not allowed"
+        if allowed:
+            msg += f". Allowed types: {sorted(allowed)}"
+        super().__init__(msg)
+
+class FileTooLargeException(Exception):
+    """Raised when an uploaded file exceeds the size limit."""
+
+    def __init__(self, size: int, max_size: int):
+        self.size = size
+        self.max_size = max_size
+        super().__init__(f"File too large: {size} bytes (max {max_size} bytes)")
+
+class InvalidRatingException(Exception):
+    """Raised when a rating is outside the allowed range."""
+
+    def __init__(self, rating: int):
+        self.rating = rating
+        super().__init__(f"Invalid rating '{rating}', must be between 1 and 5")
 
 # =============================================================================
 # Correlation ID Utilities
