@@ -200,17 +200,15 @@ async def get_current_active_user_optional(
 ) -> Optional[User]:
     """
     Try JWT auth from Authorization: Bearer <token> header.
-    Returns None if no token provided or invalid (instead of raising).
+    Returns None if no token provided or invalid.
 
-    This matches the standard pattern used by get_current_active_user
-    in the rest of your codebase.
+    FIX: Uses selectinload(User.roles) to eagerly load roles so that
+    synchronous access to user.roles later does not trigger lazy loading.
     """
-    # If no Bearer token in header, try query param as fallback (for flexibility)
     token = None
     if credentials:
         token = credentials.credentials
     else:
-        # Fallback: check query param for cases where headers can't be set
         token = request.query_params.get("token")
 
     if not token:
@@ -222,7 +220,12 @@ async def get_current_active_user_optional(
         if not user_id:
             return None
 
-        result = await db.execute(select(User).where(User.id == UUID(user_id)))
+        # FIX: Eagerly load roles to avoid MissingGreenlet
+        result = await db.execute(
+            select(User)
+            .options(selectinload(User.roles))
+            .where(User.id == UUID(user_id))
+        )
         user = result.scalar_one_or_none()
         if user and user.is_active:
             return user
