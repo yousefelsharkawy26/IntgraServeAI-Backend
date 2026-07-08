@@ -108,6 +108,7 @@
         "type": "internal",
         "active": true,
         "requires_confirmation": true,
+        "requires_human_input": true,
         "parameters": {
             "title": {
                 "type": "string",
@@ -129,6 +130,7 @@
         "type": "internal",
         "active": true,
         "requires_confirmation": true,
+        "requires_human_input": true,
         "parameters": {
             "title": {
                 "type": "string",

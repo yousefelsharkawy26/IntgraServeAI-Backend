@@ -23,6 +23,59 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Startup and shutdown events"""
+    logger.info("🚀 Application starting...")
+    
+    # Validate embedding providers on startup (deduplicated and lightweight)
+    try:
+        from ai_engine.action_engine import ActionEngine
+        from ai_engine.vector_search import validate_embedding_provider
+        from services.ai_gateway_service import AIGatewayService
+        
+        engine = AIGatewayService.get_engine()
+        
+        # Deduplicate configurations by (provider, base_url, model)
+        unique_configs = {}
+        for action in engine.actions:
+            if action.type == "vector_query" and action.execution_config:
+                embedding_config = action.execution_config.embedding_config
+                if embedding_config:
+                    # Create a unique key for this configuration
+                    config_key = f"{embedding_config.provider}:{getattr(embedding_config, 'base_url', 'default')}:{embedding_config.model}"
+                    if config_key not in unique_configs:
+                        unique_configs[config_key] = {
+                            'config': embedding_config,
+                            'actions': []
+                        }
+                    unique_configs[config_key]['actions'].append(action.name)
+        
+        validated_count = 0
+        warning_count = 0
+        
+        # Validate each unique configuration only once
+        for config_key, config_data in unique_configs.items():
+            embedding_config = config_data['config']
+            action_names = config_data['actions']
+            
+            try:
+                validate_embedding_provider(embedding_config)
+                logger.info(f"✅ Embedding provider validated: {config_key}")
+                logger.info(f"   Used by {len(action_names)} action(s): {', '.join(action_names[:3])}{'...' if len(action_names) > 3 else ''}")
+                validated_count += 1
+            except Exception as e:
+                logger.warning(f"⚠️  Embedding provider validation failed: {config_key}")
+                logger.warning(f"   Error: {e}")
+                logger.warning(f"   {len(action_names)} action(s) may fail at runtime: {', '.join(action_names[:3])}{'...' if len(action_names) > 3 else ''}")
+                warning_count += 1
+        
+        if validated_count > 0:
+            logger.info(f"✅ Validated {validated_count} unique embedding provider configuration(s)")
+        if warning_count > 0:
+            logger.warning(f"⚠️  {warning_count} embedding provider configuration(s) failed validation")
+            
+    except Exception as e:
+        logger.error(f"❌ Failed to validate embedding providers: {e}")
+        logger.error("   Vector search actions may fail at runtime.")
+    
     logger.info("🚀 Application started successfully")
     yield
     logger.info("🛑 Application shutdown complete")

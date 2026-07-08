@@ -9,6 +9,10 @@ from langchain_core.messages import BaseMessage, SystemMessage, ToolMessage, AIM
 
 from .action_engine import ActionEngine
 from .providers import ModelFactory
+from .vector_search import (
+    EmbeddingProviderError, OllamaConnectionError, OllamaModelError,
+    ProviderAuthenticationError, ProviderTimeoutError
+)
 from utils.exceptions import (
     ActionRequiresConfirmationError, ParsingException, ExecutionException,
     CorrelationIdAdapter, get_correlation_id, set_correlation_id,
@@ -204,9 +208,47 @@ class AgentRunner:
                         }
                         break
 
+                    except (OllamaConnectionError, OllamaModelError, ProviderAuthenticationError, ProviderTimeoutError, EmbeddingProviderError) as e:
+                        # Infrastructure errors - use simplified machine-readable markers
+                        error_type = type(e).__name__
+                        
+                        if isinstance(e, OllamaConnectionError):
+                            error_msg = "INFRASTRUCTURE_ERROR: Ollama server unavailable"
+                        elif isinstance(e, OllamaModelError):
+                            error_msg = "INFRASTRUCTURE_ERROR: Embedding model not available"
+                        elif isinstance(e, ProviderAuthenticationError):
+                            error_msg = "INFRASTRUCTURE_ERROR: Provider authentication failed"
+                        elif isinstance(e, ProviderTimeoutError):
+                            error_msg = "INFRASTRUCTURE_ERROR: Provider request timeout"
+                        else:
+                            error_msg = "INFRASTRUCTURE_ERROR: Embedding service failed"
+                        
+                        # Log detailed error for debugging
+                        logger.error(f"{error_type}: {str(e)}")
+                        
+                        yield {
+                            "type": "tool_error",
+                            "name": tool_name,
+                            "error": error_msg,
+                            "correlation_id": get_correlation_id(),
+                        }
+                        tool_results.append((tool_id, error_msg))
+                    
                     except Exception as e:
-                        error_msg = f"Error executing tool: {str(e)}"
-                        logger.error(error_msg)
+                        # Other errors - classify based on exception type
+                        error_type = type(e).__name__
+                        error_str = str(e)
+                        
+                        if isinstance(e, (ConnectionError, TimeoutError)):
+                            error_msg = f"INFRASTRUCTURE_ERROR: Network connectivity issue"
+                            logger.error(f"{error_type}: {error_str}")
+                        elif "validation" in error_type.lower() or "invalid" in error_str.lower():
+                            error_msg = f"VALIDATION_ERROR: Invalid input parameters"
+                            logger.error(f"{error_type}: {error_str}")
+                        else:
+                            error_msg = f"TOOL_EXECUTION_ERROR: Tool execution failed"
+                            logger.error(f"{error_type}: {error_str}")
+                        
                         yield {
                             "type": "tool_error",
                             "name": tool_name,

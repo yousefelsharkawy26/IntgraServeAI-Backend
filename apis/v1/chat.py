@@ -267,19 +267,12 @@ async def chat_websocket(websocket: WebSocket):
                 tool_call_id = p_data.get("tool_call_id", "unknown")
 
                 if approved:
-                    # Interactive tools (ticket creation, product picker, etc.)
-                    # require human input after approval. We send a generic
-                    # tool_input_required event and keep the pending state so
-                    # the frontend can send tool_result later.
-                    if p_data.get("action_name") in [
-                        "create_support_ticket",
-                        "create_technical_ticket",
-                        "select_product",
-                        "pick_calendar_date",
-                        "upload_attachment",
-                        "confirm_payment",
-                        "verify_otp",
-                    ]:
+                    # Check if this action requires human input after approval
+                    # (metadata-driven, not hardcoded)
+                    engine = gateway.get_engine()
+                    act = next((a for a in engine.actions if a.name == p_data.get("action_name")), None)
+                    
+                    if act and act.requires_human_input:
                         # Mark pending state as awaiting tool_result (for restore on reconnect)
                         p_data["_awaiting_tool_result"] = True
                         async with AsyncSessionLocal() as db:

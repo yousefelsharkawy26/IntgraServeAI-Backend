@@ -154,6 +154,7 @@ class ActionDefinition(BaseModel):
     type: Literal["api_request", "sql_query", "vector_query", "rpc_request", "internal"]
     active: bool = True
     requires_confirmation: bool = False
+    requires_human_input: bool = False  # Indicates tool needs human input after approval
     execution_config: Optional[ExecutionConfig] = None
     parameters: Optional[Dict[str, ActionParameter]] = {}
     response_config: Optional[ResponseConfig] = None

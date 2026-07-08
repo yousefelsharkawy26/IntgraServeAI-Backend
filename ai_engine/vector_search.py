@@ -13,6 +13,32 @@ from .providers import ModelFactory
 logger = CorrelationIdAdapter(logging.getLogger(__name__))
 
 
+# Typed exceptions for embedding provider errors
+class EmbeddingProviderError(EmbeddingGenerationError):
+    """Base exception for embedding provider errors."""
+    pass
+
+
+class OllamaConnectionError(EmbeddingProviderError):
+    """Raised when Ollama server is unreachable."""
+    pass
+
+
+class OllamaModelError(EmbeddingProviderError):
+    """Raised when Ollama model is not available."""
+    pass
+
+
+class ProviderAuthenticationError(EmbeddingProviderError):
+    """Raised when provider authentication fails."""
+    pass
+
+
+class ProviderTimeoutError(EmbeddingProviderError):
+    """Raised when provider request times out."""
+    pass
+
+
 def generate_embedding(text: str, config: EmbeddingConfig) -> List[float]:
     """Generates a vector embedding using the configured provider dynamically."""
     if isinstance(config, EmbeddingConfig):
@@ -22,6 +48,103 @@ def generate_embedding(text: str, config: EmbeddingConfig) -> List[float]:
         except Exception as e:
             raise EmbeddingGenerationError(f"Failed to generate embedding: {str(e)}")
     raise ProviderConfigurationError(f" recieved config object type: '{str(type(config))}' instead of 'EmbeddingConfig' ")
+
+
+def validate_embedding_provider(config: EmbeddingConfig) -> None:
+    """
+    Lightweight validation that the embedding provider is available.
+    
+    This performs inexpensive checks during startup:
+    - For Ollama: Check server availability and model existence via API
+    - For other providers: Initialize client and validate configuration
+    
+    Does NOT generate actual embeddings to avoid expensive operations at startup.
+    
+    Raises:
+        OllamaConnectionError: If Ollama server is unreachable
+        OllamaModelError: If Ollama model is not available
+        ProviderAuthenticationError: If provider authentication fails
+        ProviderTimeoutError: If provider request times out
+        EmbeddingProviderError: For other provider errors
+    """
+    try:
+        if config.provider == "ollama":
+            # Lightweight Ollama validation: check server and model via API
+            import httpx
+            
+            base_url = getattr(config, 'base_url', 'http://localhost:11434')
+            
+            # Check if Ollama server is running
+            try:
+                with httpx.Client(timeout=5.0) as client:
+                    response = client.get(f"{base_url}/api/tags")
+                    response.raise_for_status()
+                    
+                    # Check if the model exists
+                    models = response.json().get("models", [])
+                    model_names = [m["name"] for m in models]
+                    
+                    if config.model_name not in model_names:
+                        raise OllamaModelError(
+                            f"Model '{config.model_name}' not found in Ollama. "
+                            f"Available models: {', '.join(model_names[:5])}{'...' if len(model_names) > 5 else ''}. "
+                            f"Run: ollama pull {config.model_name}"
+                        )
+                    
+            except httpx.ConnectError:
+                raise OllamaConnectionError(
+                    f"Cannot connect to Ollama server at {base_url}. "
+                    f"Please ensure Ollama is running."
+                )
+            except httpx.TimeoutException:
+                raise ProviderTimeoutError(
+                    f"Ollama server at {base_url} did not respond within 5 seconds."
+                )
+            except httpx.HTTPStatusError as e:
+                raise EmbeddingProviderError(
+                    f"Ollama server returned HTTP {e.response.status_code}: {e.response.text}"
+                )
+        
+        else:
+            # For other providers (OpenAI, Cohere, etc.), just initialize the client
+            # This validates API keys and configuration without making embedding requests
+            embeddings_model = ModelFactory.get_embeddings(config)
+            
+            # Check if the model has required attributes
+            if not hasattr(embeddings_model, 'embed_query'):
+                raise EmbeddingProviderError(
+                    f"Embedding model for provider '{config.provider}' does not have 'embed_query' method"
+                )
+        
+        logger.info(f"✅ Embedding provider '{config.provider}' with model '{config.model_name}' is available")
+        
+    except (OllamaConnectionError, OllamaModelError, ProviderAuthenticationError, ProviderTimeoutError, EmbeddingProviderError):
+        # Re-raise typed exceptions as-is
+        raise
+    except Exception as e:
+        # Wrap unexpected exceptions
+        error_msg = str(e)
+        
+        if "authentication" in error_msg.lower() or "api key" in error_msg.lower() or "401" in error_msg:
+            raise ProviderAuthenticationError(
+                f"Authentication failed for embedding provider '{config.provider}': {error_msg}"
+            )
+        elif "timeout" in error_msg.lower():
+            raise ProviderTimeoutError(
+                f"Provider '{config.provider}' request timed out: {error_msg}"
+            )
+        else:
+            raise EmbeddingProviderError(
+                f"Embedding provider validation failed: {error_msg}"
+            )
+
+
+def validate_embedding_config(config: EmbeddingConfig) -> None:
+    """
+    Legacy function - delegates to validate_embedding_provider.
+    Kept for backward compatibility.
+    """
+    validate_embedding_provider(config)
     
 
 class BaseVectorDriver(ABC):
