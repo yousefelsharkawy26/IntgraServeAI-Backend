@@ -154,6 +154,35 @@ async def chat_websocket(websocket: WebSocket):
 
         await websocket.send_json({"type": "connected", "conversation_id": str(conversation_id)})
 
+        # --- STATE RESTORATION ---
+        # If there's a pending state (e.g., from a previous disconnect or page refresh),
+        # send it to the frontend so it can restore the approval card or tool UI.
+        async with AsyncSessionLocal() as db:
+            pending = await gateway.load_pending_state(db, conversation_id)
+
+        if pending:
+            p_data = pending["pause_data"]
+            # Determine what phase the pending state is in:
+            # - If it has tool_input_required info → restore tool UI
+            # - Otherwise → restore approval card
+            # We check if the pending state was saved after a confirm(approved)
+            # by looking for a "_confirmed" flag we set in the confirm handler.
+            if p_data.get("_awaiting_tool_result"):
+                await websocket.send_json({
+                    "type": "restore_tool_input",
+                    "action_name": p_data.get("action_name"),
+                    "tool_call_id": p_data.get("tool_call_id", "unknown"),
+                    "params": p_data.get("params", {}),
+                })
+            else:
+                await websocket.send_json({
+                    "type": "restore_approval",
+                    "action_name": p_data.get("action_name"),
+                    "tool_call_id": p_data.get("tool_call_id", "unknown"),
+                    "params": p_data.get("params", {}),
+                })
+            logger.info(f"Restored pending state for conversation {conversation_id}")
+
         # --- BACKGROUND GENERATION WORKER ---
         async def run_ai_stream(messages_state):
             runner = gateway.create_runner(customer_email, customer_name)
@@ -251,7 +280,11 @@ async def chat_websocket(websocket: WebSocket):
                         "confirm_payment",
                         "verify_otp",
                     ]:
-                        # Do NOT clear pending state — wait for tool_result
+                        # Mark pending state as awaiting tool_result (for restore on reconnect)
+                        p_data["_awaiting_tool_result"] = True
+                        async with AsyncSessionLocal() as db:
+                            await gateway.save_pending_state(db, conversation_id, msgs, p_data)
+
                         await websocket.send_json({
                             "type": "tool_input_required",
                             "action_name": p_data.get("action_name"),
@@ -322,30 +355,51 @@ async def chat_websocket(websocket: WebSocket):
                 tool_call_id = msg.get("tool_call_id") or p_data.get("tool_call_id", "unknown")
                 result_data = msg.get("result", {})
 
-                # Merge user's input into the original params and execute the action.
-                # This is the key step: the backend executes the tool with the
-                # human's input, not just passing it to the LLM.
-                if isinstance(result_data, dict):
-                    p_data["params"] = {**p_data.get("params", {}), **result_data}
+                # Check if the result indicates cancellation or failure.
+                # If so, do NOT execute the action — just inform the LLM.
+                is_cancelled = (
+                    isinstance(result_data, dict)
+                    and result_data.get("cancelled") is True
+                )
+                is_failed = (
+                    isinstance(result_data, dict)
+                    and "error" in result_data
+                    and not result_data.get("cancelled")
+                )
 
-                try:
-                    execution_result = await gateway.execute_paused_action(
-                        p_data, customer_email, customer_name
-                    )
-                    msgs.append(ToolMessage(content=execution_result, tool_call_id=tool_call_id))
-                except Exception as e:
-                    logger.error(f"Tool execution failed after tool_result: {e}")
+                if is_cancelled:
                     msgs.append(ToolMessage(
-                        content=f"Action failed: {str(e)}",
+                        content="Action cancelled by user. Do not call this tool again. Please acknowledge the user's decision.",
                         tool_call_id=tool_call_id,
                     ))
+                elif is_failed:
+                    error_msg = result_data.get("error", "Unknown error")
+                    msgs.append(ToolMessage(
+                        content=f"Tool execution failed on the client side: {error_msg}",
+                        tool_call_id=tool_call_id,
+                    ))
+                else:
+                    # Merge user's input into the original params and execute the action.
+                    if isinstance(result_data, dict):
+                        p_data["params"] = {**p_data.get("params", {}), **result_data}
+
+                    try:
+                        execution_result = await gateway.execute_paused_action(
+                            p_data, customer_email, customer_name
+                        )
+                        msgs.append(ToolMessage(content=execution_result, tool_call_id=tool_call_id))
+                    except Exception as e:
+                        logger.error(f"Tool execution failed after tool_result: {e}")
+                        msgs.append(ToolMessage(
+                            content=f"Action failed: {str(e)}",
+                            tool_call_id=tool_call_id,
+                        ))
 
                 # Clear pending state — execution resumes
                 async with AsyncSessionLocal() as db:
                     await gateway.clear_pending_state(db, conversation_id)
 
-                # Resume the AI stream — the LLM will see the execution result
-                # and continue naturally (e.g., "I've created ticket #1234 for you")
+                # Resume the AI stream — the LLM will see the result and continue
                 active_generation_task = asyncio.create_task(run_ai_stream(msgs))
 
             elif msg_type == "end":
