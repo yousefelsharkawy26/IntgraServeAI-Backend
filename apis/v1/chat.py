@@ -11,6 +11,7 @@
 #   - Customer: access only their own conversations via session_id + customer_email
 
 import asyncio
+import json
 import logging
 import os
 from typing import List, Optional
@@ -237,16 +238,29 @@ async def chat_websocket(websocket: WebSocket):
                 tool_call_id = p_data.get("tool_call_id", "unknown")
 
                 if approved:
-                    if p_data.get("action_name") in ["create_support_ticket", "create_technical_ticket"]:
-                        async with AsyncSessionLocal() as db:
-                            await gateway.clear_pending_state(db, conversation_id)
+                    # Interactive tools (ticket creation, product picker, etc.)
+                    # require human input after approval. We send a generic
+                    # tool_input_required event and keep the pending state so
+                    # the frontend can send tool_result later.
+                    if p_data.get("action_name") in [
+                        "create_support_ticket",
+                        "create_technical_ticket",
+                        "select_product",
+                        "pick_calendar_date",
+                        "upload_attachment",
+                        "confirm_payment",
+                        "verify_otp",
+                    ]:
+                        # Do NOT clear pending state — wait for tool_result
                         await websocket.send_json({
-                            "type": "show_ticket_dialogue",
+                            "type": "tool_input_required",
                             "action_name": p_data.get("action_name"),
+                            "tool_call_id": tool_call_id,
                             "params": p_data.get("params", {}),
                         })
                         continue
 
+                    # Non-interactive tools: execute immediately
                     try:
                         result = await gateway.execute_paused_action(p_data, customer_email, customer_name)
                         msgs.append(ToolMessage(content=result, tool_call_id=tool_call_id))
@@ -261,6 +275,77 @@ async def chat_websocket(websocket: WebSocket):
                 async with AsyncSessionLocal() as db:
                     await gateway.clear_pending_state(db, conversation_id)
 
+                active_generation_task = asyncio.create_task(run_ai_stream(msgs))
+
+            # =============================================================
+            # GENERIC tool_result handler
+            # =============================================================
+            # The frontend sends this after the user interacts with a tool UI
+            # (fills a form, picks a product, selects a date, etc.).
+            #
+            # Payload:
+            #   { "type": "tool_result", "tool_call_id": "...", "result": { ... } }
+            #
+            # The result is passed back into the LLM as a ToolMessage so the
+            # agent can continue reasoning with the human's input.
+            # =============================================================
+            elif msg_type == "tool_result":
+                async with AsyncSessionLocal() as db:
+                    state = await gateway.load_pending_state(db, conversation_id)
+
+                if not state:
+                    await websocket.send_json({
+                        "type": "error",
+                        "message": "No pending action for tool_result",
+                    })
+                    continue
+
+                cancel_token.clear()
+                msgs = state["messages"]
+                p_data = state["pause_data"]
+
+                # Reconstruct conversation history from resume state
+                resume_state = p_data.get("_resume_state", {})
+                if resume_state:
+                    ast_msg = resume_state.get("assistant_message", {})
+                    if isinstance(ast_msg, dict):
+                        msgs.append(AIMessage(
+                            content=ast_msg.get("content", ""),
+                            tool_calls=ast_msg.get("tool_calls", []),
+                        ))
+                    for tr in resume_state.get("completed_tool_results", []):
+                        msgs.append(ToolMessage(
+                            content=tr["content"],
+                            tool_call_id=tr["tool_call_id"],
+                        ))
+
+                tool_call_id = msg.get("tool_call_id") or p_data.get("tool_call_id", "unknown")
+                result_data = msg.get("result", {})
+
+                # Merge user's input into the original params and execute the action.
+                # This is the key step: the backend executes the tool with the
+                # human's input, not just passing it to the LLM.
+                if isinstance(result_data, dict):
+                    p_data["params"] = {**p_data.get("params", {}), **result_data}
+
+                try:
+                    execution_result = await gateway.execute_paused_action(
+                        p_data, customer_email, customer_name
+                    )
+                    msgs.append(ToolMessage(content=execution_result, tool_call_id=tool_call_id))
+                except Exception as e:
+                    logger.error(f"Tool execution failed after tool_result: {e}")
+                    msgs.append(ToolMessage(
+                        content=f"Action failed: {str(e)}",
+                        tool_call_id=tool_call_id,
+                    ))
+
+                # Clear pending state — execution resumes
+                async with AsyncSessionLocal() as db:
+                    await gateway.clear_pending_state(db, conversation_id)
+
+                # Resume the AI stream — the LLM will see the execution result
+                # and continue naturally (e.g., "I've created ticket #1234 for you")
                 active_generation_task = asyncio.create_task(run_ai_stream(msgs))
 
             elif msg_type == "end":
