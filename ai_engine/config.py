@@ -151,7 +151,7 @@ class ActionDefinition(BaseModel):
 
     name: str = Field(alias="name")
     description: str
-    type: Literal["api_request", "sql_query", "vector_query", "rpc_request", "internal"]
+    type: Literal["api_request", "sql_query", "vector_query", "rpc_request", "knowledge_query", "internal"]
     active: bool = True
     requires_confirmation: bool = False
     requires_human_input: bool = False  # Indicates tool needs human input after approval
