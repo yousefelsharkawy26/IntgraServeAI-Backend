@@ -323,7 +323,7 @@ class InvalidActionFieldException(HTTPActionParsingException):
 
 class UnsupportedActionTypeException(HTTPActionParsingException):
     """Exception for unsupported action types in an HTTP request."""
-    SUPPORTED_TYPES = ["api_request", "rpc_request", "internal"]
+    SUPPORTED_TYPES = ["api_request", "rpc_request", "vector_query", "sql_query", "knowledge_query", "internal"]
 
     def __init__(self, action_type: str):
         message = (

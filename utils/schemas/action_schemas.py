@@ -12,6 +12,8 @@ class ActionType(str, Enum):
     API_REQUEST = "api_request"
     RPC_REQUEST = "rpc_request"
     VECTOR_QUERY = "vector_query"
+    SQL_QUERY = "sql_query"
+    KNOWLEDGE_QUERY = "knowledge_query"
     INTERNAL = "internal"
 
 
@@ -35,6 +37,7 @@ class ResponseMode(str, Enum):
     XML = "xml"
     HTML = "html"
     RAW = "raw"
+    SQL = "sql"
 
 
 class Protocol(str, Enum):
@@ -69,6 +72,20 @@ ACTION_TYPE_CONFIG = {
         "allowed_param_types": ["vector"],
         "allowed_response_modes": ["json", "raw"],
         "forbidden_exec_fields": ["protocol", "url", "method", "host", "service", "proto_file", "headers", "timeout"],
+    },
+    ActionType.SQL_QUERY: {
+        "required_exec_fields": ["connector", "connection_string"],
+        "optional_exec_fields": ["max_results", "auth"],
+        "allowed_param_types": ["query"],
+        "allowed_response_modes": ["raw", "sql"],
+        "forbidden_exec_fields": ["protocol", "url", "method", "host", "service", "proto_file", "headers", "timeout", "collection_name", "embedding_config"],
+    },
+    ActionType.KNOWLEDGE_QUERY: {
+        "required_exec_fields": ["connector", "connection_string"],
+        "optional_exec_fields": ["max_results", "auth", "collection_name"],
+        "allowed_param_types": ["query"],
+        "allowed_response_modes": ["raw"],
+        "forbidden_exec_fields": ["protocol", "url", "method", "host", "service", "proto_file", "headers", "timeout", "embedding_config"],
     },
     ActionType.INTERNAL: {
         "required_exec_fields": [],
@@ -131,7 +148,7 @@ class ExecutionConfig(BaseModel):
     """Schema for execution configuration. Fields vary based on action type."""
     # API Request fields
     protocol: Optional[Protocol] = Field(None, description="Protocol (http, https, grpc)")
-    method: Optional[HttpMethod] = Field(None, description="HTTP method")
+    method: Optional[str] = Field(None, description="Method (HTTP method for API, or RPC method name)")
     url: Optional[str] = Field(None, description="API URL")
     headers: Optional[Dict[str, str]] = Field(None, description="HTTP headers")
     timeout: Optional[int] = Field(None, description="Timeout in milliseconds")
@@ -141,8 +158,9 @@ class ExecutionConfig(BaseModel):
     service: Optional[str] = Field(None, description="gRPC service name")
     proto_file: Optional[str] = Field(None, description="Path to .proto file")
 
-    connector: Optional[str] = Field(None, description="Vector DB connector")
-    connection_string: Optional[str] = Field(None, description="Vector DB connection string")
+    # Vector / SQL / Knowledge fields
+    connector: Optional[str] = Field(None, description="Database/vector connector")
+    connection_string: Optional[str] = Field(None, description="Database/vector connection string")
     collection_name: Optional[str] = Field(None, description="Collection/table name")
     max_results: Optional[int] = Field(None, description="Max search results")
     auth: Optional[Dict[str, str]] = Field(None, description="Auth credentials")
@@ -152,11 +170,11 @@ class ExecutionConfig(BaseModel):
 
 
 # ============================================================================
-# Main Action Schema - Create (for API/RPC only)
+# Main Action Schema - Create (not for internal actions)
 # ============================================================================
 
 class ActionCreate(BaseModel):
-    """Schema for creating a new action (API/RPC only, not internal)"""
+    """Schema for creating a new action (not internal)"""
     name: str = Field(
         ...,
         min_length=1,
@@ -165,7 +183,7 @@ class ActionCreate(BaseModel):
         description="Unique action name (lowercase, underscores allowed)"
     )
     description: str = Field(..., min_length=1, max_length=500, description="Description of what the action does")
-    type: ActionType = Field(..., description="Type of action (api_request or rpc_request)")
+    type: ActionType = Field(..., description="Type of action")
     active: bool = Field(True, description="Whether the action is active")
     requires_confirmation: bool = Field(False, description="Whether action requires user confirmation")
     execution_config: ExecutionConfig = Field(..., description="Execution configuration")
@@ -195,7 +213,7 @@ class ActionCreate(BaseModel):
 
 
 # ============================================================================
-# Main Action Schema - Update (for API/RPC only)
+# Main Action Schema - Update (for API/RPC/Vector/SQL/Knowledge only)
 # ============================================================================
 
 class ActionUpdate(BaseModel):
@@ -378,6 +396,9 @@ class BackupCompareResponse(BaseModel):
 ACTION_TYPE_DESCRIPTIONS = {
     ActionType.API_REQUEST: "HTTP/HTTPS API calls",
     ActionType.RPC_REQUEST: "gRPC remote procedure calls",
+    ActionType.VECTOR_QUERY: "Vector database queries with embeddings",
+    ActionType.SQL_QUERY: "SQL database queries",
+    ActionType.KNOWLEDGE_QUERY: "Knowledge base queries",
     ActionType.INTERNAL: "Internal system actions (read-only)",
 }
 
