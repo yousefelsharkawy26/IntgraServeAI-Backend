@@ -47,9 +47,18 @@ def validate_password_strength(password: str) -> tuple[bool, Optional[str]]:
     if len(password) > 128:
         return False, "Password must not exceed 128 characters"
     
-    # Add more rules if needed
-    # has_uppercase = any(c.isupper() for c in password)
-    # has_lowercase = any(c.islower() for c in password)
-    # has_digit = any(c.isdigit() for c in password)
+    has_uppercase = any(c.isupper() for c in password)
+    has_lowercase = any(c.islower() for c in password)
+    has_digit = any(c.isdigit() for c in password)
+    has_special = any(not c.isalnum() for c in password)
+
+    if not has_uppercase:
+        return False, "Password must contain at least one uppercase letter"
+    if not has_lowercase:
+        return False, "Password must contain at least one lowercase letter"
+    if not has_digit:
+        return False, "Password must contain at least one digit"
+    if not has_special:
+        return False, "Password must contain at least one special character"
     
     return True, None

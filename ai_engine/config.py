@@ -105,6 +105,7 @@ class LLMConfig(BaseModel):
     provider: str
     model_name: str
     rate_limit_delay_seconds: int = 0
+    max_iterations: int = Field(default=20, ge=1, le=100)
     temperature: float = 0.7
     max_tokens: int = 2048
     api_key: Optional[str] = None

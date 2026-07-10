@@ -97,12 +97,28 @@ class AgentRunner:
                 working_messages.insert(0, SystemMessage(content=self.system_prompt))
 
             rate_limit_delay = 0
+            max_iterations = 20
             if self.engine.agent_config.llm_config:
                 rate_limit_delay = self.engine.agent_config.llm_config.rate_limit_delay_seconds or 0
+                max_iterations = self.engine.agent_config.llm_config.max_iterations or 20
 
             first_iteration = True
+            iteration_count = 0
 
             while True:
+                iteration_count += 1
+                if iteration_count > max_iterations:
+                    error_message = (
+                        f"Maximum agent iterations exceeded ({max_iterations}). "
+                        "Stopping to prevent a runaway tool-calling loop."
+                    )
+                    logger.error(error_message)
+                    yield {
+                        "type": "error",
+                        "message": error_message,
+                        "correlation_id": get_correlation_id(),
+                    }
+                    break
                 if not first_iteration and rate_limit_delay > 0:
                     logger.info(
                         f"Rate Limiter: Sleeping for {rate_limit_delay}s to respect API quotas..."
