@@ -789,3 +789,6 @@ class UserService:
             created_at=datetime.now(timezone.utc)
         )
         self.db.add(audit_log)
+        # Flush so the audit log is persisted even if the caller forgets to commit.
+        # The caller still owns the transaction boundary (commit/rollback).
+        await self.db.flush()

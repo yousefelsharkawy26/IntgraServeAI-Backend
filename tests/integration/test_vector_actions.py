@@ -147,9 +147,20 @@ class TestPostgresVectorSearch:
             }
         }]
         engine = ActionEngine(vector_agent_config, actions_list=actions)
-        with pytest.raises(VectorSearchError) as exc_info:
-            await engine.execute_action_directly("bad_collection", {"topic": "test"})
-        assert "Invalid collection name" in str(exc_info.value)
+
+        import ai_engine.action_engine as ae
+        orig_generate = ae.generate_embedding
+
+        def mock_gen(text, config):
+            return [0.1] * 768
+
+        ae.generate_embedding = mock_gen
+        try:
+            with pytest.raises(VectorSearchError) as exc_info:
+                await engine.execute_action_directly("bad_collection", {"topic": "test"})
+            assert "Invalid collection name" in str(exc_info.value)
+        finally:
+            ae.generate_embedding = orig_generate
 
 
 @pytest.mark.asyncio
@@ -240,9 +251,20 @@ class TestVectorErrors:
             }
         }]
         engine = ActionEngine(vector_agent_config, actions_list=actions)
-        with pytest.raises(UnsupportedDatabaseDriver) as exc_info:
-            await engine.execute_action_directly("bad_driver", {"topic": "test"})
-        assert "mongo" in str(exc_info.value)
+
+        import ai_engine.action_engine as ae
+        orig_generate = ae.generate_embedding
+
+        def mock_gen(text, config):
+            return [0.1] * 768
+
+        ae.generate_embedding = mock_gen
+        try:
+            with pytest.raises(UnsupportedDatabaseDriver) as exc_info:
+                await engine.execute_action_directly("bad_driver", {"topic": "test"})
+            assert "mongo" in str(exc_info.value)
+        finally:
+            ae.generate_embedding = orig_generate
 
     async def test_missing_vector_param(self, vector_agent_config):
         actions = [{

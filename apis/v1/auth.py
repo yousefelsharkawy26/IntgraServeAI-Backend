@@ -1,5 +1,5 @@
 # apis/v1/auth.py
-from fastapi import APIRouter, Depends, status, Query, Response, Cookie
+from fastapi import APIRouter, Depends, status, Response, Cookie, Request
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional
@@ -23,6 +23,7 @@ from utils.exceptions import (
     InvalidTokenException,
     UnauthorizedException
 )
+from utils.rate_limiter import rate_limit_by_ip, rate_limit_by_ip_and_field
 import logging
 
 router = APIRouter()
@@ -44,7 +45,8 @@ logger = logging.getLogger(__name__)
 async def login(
     response: Response,
     credentials: LoginRequest,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    _rate_limit: None = Depends(rate_limit_by_ip_and_field("email")),
 ):
     """Login endpoint"""
     try:
@@ -84,7 +86,8 @@ async def login(
 )
 async def forgot_password(
     request: ForgotPasswordRequest,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    _rate_limit: None = Depends(rate_limit_by_ip_and_field("email")),
 ):
     """Forgot password endpoint"""
     try:
@@ -110,14 +113,14 @@ async def forgot_password(
     description="Reset user password using token from email."
 )
 async def reset_password(
-    token: str = Query(..., description="Password reset token from email"),
-    request: ResetPasswordRequest = ...,
-    db: AsyncSession = Depends(get_db)
+    request: ResetPasswordRequest,
+    db: AsyncSession = Depends(get_db),
+    _rate_limit: None = Depends(rate_limit_by_ip()),
 ):
     """Reset password endpoint"""
     try:
         auth_service = AuthService(db)
-        result = await auth_service.reset_password(token, request)
+        result = await auth_service.reset_password(request.token, request)
         return result
     except (InvalidTokenException, ValidationException) as e:
         raise e
@@ -139,13 +142,17 @@ async def reset_password(
 )
 async def refresh_token(
     refresh_token: Optional[str] = Cookie(None),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    _rate_limit: None = Depends(rate_limit_by_ip()),
 ):
     """Refresh token endpoint"""
     
-    # ✅ استخدم UnauthorizedException
     if not refresh_token:
         raise UnauthorizedException("Refresh token not found")
+    
+    # Check blacklist before accepting the refresh token
+    if await TokenHelper.is_token_blacklisted(refresh_token, db):
+        raise UnauthorizedException("Refresh token has been revoked")
     
     try:
         auth_service = AuthService(db)
@@ -159,7 +166,7 @@ async def refresh_token(
         raise UnauthorizedException("Invalid refresh token")
 
 
-@router.get(
+@router.post(
     "/logout",
     response_model=MessageResponse,
     status_code=status.HTTP_200_OK,
@@ -171,9 +178,17 @@ async def refresh_token(
 )
 async def logout(
     response: Response,
+    refresh_token: Optional[str] = Cookie(None),
     db: AsyncSession = Depends(get_db)
 ):
-    """Logout endpoint"""
+    """Logout endpoint — blacklists the refresh token so it cannot be reused."""
+    if refresh_token:
+        try:
+            await TokenHelper.blacklist_token(refresh_token, "refresh", db)
+        except Exception:
+            # Still clear the cookie even if blacklisting fails
+            logger.warning("Failed to blacklist refresh token during logout", exc_info=True)
+    
     response.delete_cookie(
         key="refresh_token",
         path="/api/v1/auth"

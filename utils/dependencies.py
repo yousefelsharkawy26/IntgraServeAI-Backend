@@ -2,7 +2,7 @@
 """
 Authentication and Authorization Dependencies
 """
-from fastapi import Depends, Query, Request
+from fastapi import Depends, Query
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -38,6 +38,10 @@ async def get_current_user(
         UnauthorizedException: If token is invalid or user not found
     """
     try:
+        # Check blacklist before verifying
+        if await TokenHelper.is_token_blacklisted(credentials.credentials, db):
+            raise UnauthorizedException("Token has been revoked")
+        
         # Verify access token
         payload = TokenHelper.verify_token(credentials.credentials, token_type="access")
         user_id = payload.get("user_id")
@@ -194,7 +198,6 @@ async def verify_customer_session_for_conversation(
     )
 
 async def get_current_active_user_optional(
-    request: Request,
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(security_bearer),
     db: AsyncSession = Depends(get_db),
 ) -> Optional[User]:
@@ -205,16 +208,18 @@ async def get_current_active_user_optional(
     FIX: Uses selectinload(User.roles) to eagerly load roles so that
     synchronous access to user.roles later does not trigger lazy loading.
     """
-    token = None
-    if credentials:
-        token = credentials.credentials
-    else:
-        token = request.query_params.get("token")
+    if not credentials:
+        return None
 
+    token = credentials.credentials
     if not token:
         return None
 
     try:
+        # Check blacklist before verifying
+        if await TokenHelper.is_token_blacklisted(token, db):
+            return None
+
         payload = TokenHelper.verify_token(token)
         user_id = payload.get("user_id")
         if not user_id:
@@ -301,7 +306,10 @@ class ChatAccess:
         if self.is_admin:
             return True
         if self.is_agent:
-            return True  # Agents can modify any active conversation
+            # Only the assigned agent can modify a specific conversation
+            if self.user and conv.assigned_agent_id is not None:
+                return str(conv.assigned_agent_id) == str(self.user.id)
+            return False
         if self.customer_session:
             return (
                 conv.session_id == self.customer_session.session_id and
@@ -323,14 +331,14 @@ async def get_chat_access(
     Dual authentication dependency for chat endpoints.
 
     Accepts EITHER:
-      - JWT bearer token via `token` query param (for staff users)
+      - JWT bearer token via Authorization header (for staff users)
       - session_id + customer_email query params (for customers)
 
     Raises 401 if neither authentication method succeeds.
     """
     if user is None and customer_session is None:
         raise UnauthorizedException(
-            "Authentication required. Provide either a valid JWT token (as 'token' query param) "
+            "Authentication required. Provide either a valid JWT token via Authorization header "
             "or session_id + customer_email query params."
         )
 

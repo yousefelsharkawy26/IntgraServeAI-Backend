@@ -12,6 +12,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field
 
 from models.chat import ResponseType
+from models.ticket import SenderType
 
 
 T = TypeVar("T")
@@ -67,6 +68,7 @@ class ConversationOut(BaseModel):
 
 class ConversationDetail(ConversationOut):
     messages: List["MessageOut"] = []
+    messages_meta: Optional[PageMeta] = None
     rating: Optional["RatingOut"] = None
 
 
@@ -77,7 +79,7 @@ class ConversationDetail(ConversationOut):
 class MessageCreate(BaseModel):
     conversation_id: UUID
     content: str = Field(..., min_length=1)
-    sender_type: str = Field(default="CUSTOMER")
+    sender_type: SenderType = Field(default=SenderType.CUSTOMER)
 
 
 class MessageEdit(BaseModel):

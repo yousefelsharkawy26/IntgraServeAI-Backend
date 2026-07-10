@@ -158,7 +158,7 @@ async def test_reset_password_success(
     mock_get_password_hash.return_value = "new_hashed_password"
     mock_db_session.execute.return_value = mock_db_result(mock_user)
     
-    request = ResetPasswordRequest(new_password="StrongPassword123!")
+    request = ResetPasswordRequest(token="valid_token", new_password="StrongPassword123!")
     result = await auth_service.reset_password("valid_token", request)
     
     assert result["message"] == "Password has been reset successfully."

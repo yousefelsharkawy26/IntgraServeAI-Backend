@@ -1,6 +1,7 @@
 # utils/token_helper.py
 from datetime import datetime, timedelta, timezone
 from typing import Optional, Dict, Any
+import hashlib
 import jwt
 from core.config import settings
 from utils.exceptions import InvalidTokenException, UnauthorizedException
@@ -9,6 +10,56 @@ from uuid import UUID
 
 class TokenHelper:
     """Helper class for JWT token operations"""
+    
+    @staticmethod
+    def _hash_token(token: str) -> str:
+        """Compute a stable SHA-256 hash of a raw token string."""
+        return hashlib.sha256(token.encode("utf-8")).hexdigest()
+    
+    @staticmethod
+    async def blacklist_token(token: str, token_type: str, db) -> None:
+        """Add a token to the blacklist.  *db* is an AsyncSession."""
+        from models.auth import TokenBlacklist
+        from sqlalchemy import select, delete
+        
+        payload = TokenHelper.verify_token(token, token_type)
+        exp = payload.get("exp")
+        expires_at = datetime.fromtimestamp(exp, tz=timezone.utc) if exp else (
+            datetime.now(timezone.utc) + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
+        )
+        
+        token_hash = TokenHelper._hash_token(token)
+        
+        # Cleanup expired entries (best-effort, fire-and-forget)
+        try:
+            await db.execute(
+                delete(TokenBlacklist).where(TokenBlacklist.expires_at < datetime.now(timezone.utc))
+            )
+        except Exception:
+            pass
+        
+        entry = TokenBlacklist(
+            token_hash=token_hash,
+            token_type=token_type,
+            expires_at=expires_at,
+        )
+        db.add(entry)
+        await db.commit()
+    
+    @staticmethod
+    async def is_token_blacklisted(token: str, db) -> bool:
+        """Return True if the token has been revoked.  *db* is an AsyncSession."""
+        from models.auth import TokenBlacklist
+        from sqlalchemy import select
+        
+        token_hash = TokenHelper._hash_token(token)
+        result = await db.execute(
+            select(TokenBlacklist).where(
+                TokenBlacklist.token_hash == token_hash,
+                TokenBlacklist.expires_at > datetime.now(timezone.utc),
+            )
+        )
+        return result.scalar_one_or_none() is not None
     
     @staticmethod
     def create_access_token(
@@ -141,18 +192,6 @@ class TokenHelper:
     def verify_reset_password_token(token: str) -> Dict[str, Any]:
         """Verify password reset token"""
         return TokenHelper.verify_token(token, token_type="reset_password")
-    
-    @staticmethod
-    def decode_token_without_verification(token: str) -> Dict[str, Any]:
-        """Decode token without verification (for debugging)"""
-        try:
-            return jwt.decode(
-                token,
-                options={"verify_signature": False},
-                algorithms=[settings.ALGORITHM]
-            )
-        except Exception:
-            return {}
     
     @staticmethod
     def get_user_id_from_token(token: str) -> str:

@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import re
 from abc import ABC, abstractmethod
@@ -50,7 +51,7 @@ def generate_embedding(text: str, config: EmbeddingConfig) -> List[float]:
     raise ProviderConfigurationError(f" recieved config object type: '{str(type(config))}' instead of 'EmbeddingConfig' ")
 
 
-def validate_embedding_provider(config: EmbeddingConfig) -> None:
+async def validate_embedding_provider(config: EmbeddingConfig) -> None:
     """
     Lightweight validation that the embedding provider is available.
     
@@ -76,8 +77,8 @@ def validate_embedding_provider(config: EmbeddingConfig) -> None:
             
             # Check if Ollama server is running
             try:
-                with httpx.Client(timeout=5.0) as client:
-                    response = client.get(f"{base_url}/api/tags")
+                async with httpx.AsyncClient(timeout=5.0) as client:
+                    response = await client.get(f"{base_url}/api/tags")
                     response.raise_for_status()
                     
                     # Check if the model exists
@@ -139,25 +140,25 @@ def validate_embedding_provider(config: EmbeddingConfig) -> None:
             )
 
 
-def validate_embedding_config(config: EmbeddingConfig) -> None:
+async def validate_embedding_config(config: EmbeddingConfig) -> None:
     """
     Legacy function - delegates to validate_embedding_provider.
     Kept for backward compatibility.
     """
-    validate_embedding_provider(config)
+    await validate_embedding_provider(config)
     
 
 class BaseVectorDriver(ABC):
     @abstractmethod
-    def search(self, query_vector: List[float], config: ExecutionConfig) -> List[Dict[str, Any]]:
+    async def search(self, query_vector: List[float], config: ExecutionConfig) -> List[Dict[str, Any]]:
         pass
 
 class PostgresVectorDriver(BaseVectorDriver):
     """Driver for PostgreSQL with the pgvector extension."""
-    
+
     _VALID_COLLECTION_RE = re.compile(r"^[a-zA-Z0-9_]+$")
-    
-    def search(self, query_vector: List[float], config: ExecutionConfig) -> List[Dict[str, Any]]:
+
+    def _search_sync(self, query_vector: List[float], config: ExecutionConfig) -> List[Dict[str, Any]]:
         try:
             import psycopg2
             from psycopg2.extras import RealDictCursor
@@ -176,39 +177,42 @@ class PostgresVectorDriver(BaseVectorDriver):
             conn_kwargs.update(config.auth)
             if "pass" in conn_kwargs:
                 conn_kwargs["password"] = conn_kwargs.pop("pass")
-        
+
         try:
             with psycopg2.connect(config.connection_string, **conn_kwargs) as conn:
                 with conn.cursor(cursor_factory=RealDictCursor) as cur:
                     vector_str = "[" + ",".join(map(str, query_vector)) + "]"
-                    
+
                     limit = config.max_results if config.max_results is not None else 100
-                    
+
                     query = sql.SQL("""
-                        SELECT * 
-                        FROM {} 
-                        ORDER BY embedding <=> %s::vector 
+                        SELECT *
+                        FROM {}
+                        ORDER BY embedding <=> %s::vector
                         LIMIT %s
                     """).format(sql.Identifier(config.collection_name))
-                    
+
                     cur.execute(query, (vector_str, limit))
                     results = cur.fetchall()
-                    
+
                     cleaned_results = []
                     for row in results:
                         row_dict = dict(row)
-                        row_dict.pop('embedding', None) 
+                        row_dict.pop('embedding', None)
                         cleaned_results.append(row_dict)
                     return cleaned_results
         except Exception as e:
             raise VectorSearchError(f"PostgreSQL Search Failed: {str(e)}")
 
+    async def search(self, query_vector: List[float], config: ExecutionConfig) -> List[Dict[str, Any]]:
+        return await asyncio.to_thread(self._search_sync, query_vector, config)
+
 class SQLiteVectorDriver(BaseVectorDriver):
     """Driver for SQLite using sqlite-vec or similar extensions."""
-    
+
     _VALID_COLLECTION_RE = re.compile(r"^[a-zA-Z0-9_]+$")
-    
-    def search(self, query_vector: List[float], config: ExecutionConfig) -> List[Dict[str, Any]]:
+
+    def _search_sync(self, query_vector: List[float], config: ExecutionConfig) -> List[Dict[str, Any]]:
         try:
             import sqlite3
             import struct
@@ -224,7 +228,7 @@ class SQLiteVectorDriver(BaseVectorDriver):
         try:
             conn = sqlite3.connect(config.connection_string)
             conn.row_factory = sqlite3.Row
-            
+
             if hasattr(conn, 'enable_load_extension'):
                 conn.enable_load_extension(True)
                 self._load_vector_extension(conn, config)
@@ -234,11 +238,11 @@ class SQLiteVectorDriver(BaseVectorDriver):
                     "SQLite connection does not support extension loading. "
                     "Ensure your SQLite build supports extensions (e.g., use pysqlite3)."
                 )
-            
+
             vector_bytes = struct.pack(f"{len(query_vector)}f", *query_vector)
-            
+
             limit = config.max_results if config.max_results is not None else 100
-            
+
             query = f"""
                 SELECT *
                 FROM {config.collection_name}
@@ -246,10 +250,10 @@ class SQLiteVectorDriver(BaseVectorDriver):
                 ORDER BY distance
                 LIMIT ?
             """
-            
+
             cur = conn.cursor()
             cur.execute(query, (vector_bytes, limit))
-            
+
             results = [dict(row) for row in cur.fetchall()]
             for r in results:
                 r.pop('embedding', None)
@@ -259,6 +263,9 @@ class SQLiteVectorDriver(BaseVectorDriver):
         finally:
             if 'conn' in locals():
                 conn.close()
+
+    async def search(self, query_vector: List[float], config: ExecutionConfig) -> List[Dict[str, Any]]:
+        return await asyncio.to_thread(self._search_sync, query_vector, config)
     
     def _load_vector_extension(self, conn, config: ExecutionConfig):
         """Load the SQLite vector extension (e.g., sqlite-vec).

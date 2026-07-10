@@ -29,6 +29,7 @@ from fastapi import (
     WebSocketDisconnect,
     status,
 )
+from sqlalchemy.orm import selectinload
 from fastapi.responses import FileResponse
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -63,6 +64,7 @@ from utils.dependencies import (
     verify_customer_session,
     verify_customer_session_for_conversation,
 )
+from utils.token_helper import TokenHelper
 from models.user import User
 from utils.exceptions import UnauthorizedException, NotFoundException, BadRequestException
 
@@ -125,11 +127,42 @@ def _enforce_access(access: ChatAccess, conv: ChatConversation, require_modify: 
 # WebSocket  (unchanged - session-based auth)
 # ===========================================================================
 
+async def _verify_ws_staff_user(token: str) -> Optional[User]:
+    """Verify a JWT token for WebSocket staff authentication."""
+    try:
+        payload = TokenHelper.verify_token(token, token_type="access")
+        user_id = payload.get("user_id")
+        if not user_id:
+            return None
+        async with AsyncSessionLocal() as db:
+            result = await db.execute(
+                select(User)
+                .options(selectinload(User.roles))
+                .where(User.id == UUID(user_id))
+            )
+            user = result.scalar_one_or_none()
+            if user and user.is_active:
+                return user
+    except Exception:
+        pass
+    return None
+
+
 @router.websocket("/ws")
 async def chat_websocket(websocket: WebSocket):
-    """WebSocket endpoint - session-based authentication via handshake."""
-    await websocket.accept()
+    """WebSocket endpoint - supports JWT (staff) or session-based (customer) auth."""
     gateway = AIGatewayService()
+
+    # -------- Pre-accept JWT verification from query params --------
+    staff_user: Optional[User] = None
+    query_token = websocket.query_params.get("token")
+    if query_token:
+        staff_user = await _verify_ws_staff_user(query_token)
+        if not staff_user:
+            await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+            return
+
+    await websocket.accept()
 
     session_id = customer_email = customer_name = conversation_id = None
     active_generation_task = None
@@ -141,8 +174,17 @@ async def chat_websocket(websocket: WebSocket):
         session_id = init_msg.get("session_id")
         customer_email = init_msg.get("customer_email")
         customer_name = init_msg.get("customer_name", "Customer")
+        handshake_token = init_msg.get("token")
 
-        if not session_id or not customer_email:
+        # If not already authenticated via query params, check handshake token
+        if not staff_user and handshake_token:
+            staff_user = await _verify_ws_staff_user(handshake_token)
+            if not staff_user:
+                await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+                return
+
+        # Customers must provide session_id + customer_email
+        if not staff_user and (not session_id or not customer_email):
             await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
             return
 
@@ -492,24 +534,35 @@ async def create_conversation(
 @router.get("/conversations/{conversation_id}", response_model=ConversationDetail)
 async def get_conversation(
     conversation_id: UUID,
+    messages_page: int = Query(1, ge=1),
+    messages_limit: int = Query(50, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
     access: ChatAccess = Depends(get_chat_access),
 ):
     """
-    Get conversation details with messages and rating.
+    Get conversation details with paginated messages and rating.
 
     **Auth:** Staff can view any. Customers can only view their own.
     """
     service = ChatService(db)
-    conv = await service.get_conversation(conversation_id, with_messages=True)
+    conv = await service.get_conversation(conversation_id)
 
     # Enforce access control
     _enforce_access(access, conv)
 
     count = await _count_messages(db, conversation_id)
+    msg_items, msg_total = await service.list_messages(
+        conversation_id=conversation_id, page=messages_page, limit=messages_limit
+    )
     return ConversationDetail(
         **_conv_to_out(conv, message_count=count).model_dump(),
-        messages=[MessageOut.model_validate(m) for m in conv.messages],
+        messages=[MessageOut.model_validate(m) for m in msg_items],
+        messages_meta=PageMeta(
+            page=messages_page,
+            limit=messages_limit,
+            total=msg_total,
+            has_more=(messages_page * messages_limit) < msg_total,
+        ),
         rating=RatingOut.model_validate(conv.rating) if conv.rating else None,
     )
 

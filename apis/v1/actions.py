@@ -25,7 +25,7 @@ from utils.schemas.action_schemas import (
     BackupDeleteAllResponse,
     BackupCompareResponse,
 )
-from utils.dependencies import require_admin
+from utils.dependencies import require_admin, get_current_active_user
 from models.user import User
 import logging
 
@@ -52,7 +52,7 @@ def get_action_service() -> ActionService:
     tags=["Actions"]
 )
 async def get_action_types(
-    current_user: User = Depends(require_admin)
+    current_user: User = Depends(get_current_active_user)
 ):
     """Get all supported action types with their configuration."""
     types_info = get_action_types_info()

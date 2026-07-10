@@ -1,5 +1,5 @@
 # models/user.py
-from sqlalchemy import Column, String, Boolean, DateTime, Text, ForeignKey, Table
+from sqlalchemy import Column, String, Boolean, DateTime, Text, ForeignKey, Table, func
 from sqlalchemy.orm import relationship
 from sqlalchemy.types import Uuid as UUID
 from models.base import BaseModel, TimestampMixin
@@ -11,7 +11,7 @@ user_roles = Table(
     BaseModel.metadata,
     Column('user_id', UUID(as_uuid=True), ForeignKey('users.id', ondelete='CASCADE'), primary_key=True),
     Column('role_id', UUID(as_uuid=True), ForeignKey('roles.id', ondelete='CASCADE'), primary_key=True),
-    Column('assigned_at', DateTime(timezone=True), server_default='now()')
+    Column('assigned_at', DateTime(timezone=True), server_default=func.now())
 )
 
 

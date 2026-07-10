@@ -1,5 +1,6 @@
 import os
 import sys
+import socket
 import tempfile
 import importlib
 import json
@@ -19,6 +20,7 @@ from filelock import FileLock
 
 from .config import AgentConfiguration, ActionDefinition, ResponseConfig, EmbeddingConfig, ActionsConfiguration
 from .vector_search import generate_embedding, get_vector_driver
+from core.config import BASE_DIR
 from utils.exceptions import (
     ActionEngineException, MissingField, InvalidActionStructure, ProtoNotFound, MethodNotFound, ServiceNotFound,
     PathParamNotFound, BodyParamOnGetRequest, ActionRequiresConfirmationError,
@@ -30,6 +32,8 @@ logger = CorrelationIdAdapter(logging.getLogger(__name__))
 
 
 class ActionEngine:
+    ALLOWED_PROTO_DIR: str = os.path.abspath(BASE_DIR / "protos")
+
     def __init__(self, agent_config_path: str, actions_config_path: str = None, actions_list: list = None):
         if actions_config_path is None and actions_list is None:
             raise ValueError("Either actions_config_path or actions_list must be provided")
@@ -74,7 +78,7 @@ class ActionEngine:
         raise InvalidActionStructure(f"{context_msg}: {str(e)}")
     
     def _validate_url_safety(self, url: str) -> None:
-        """Validates URLs to prevent Server-Side Request Forgery (SSRF)."""
+        """Validates URLs to prevent Server-Side Request Forgery (SSRF) via DNS rebinding."""
         parsed = urlparse(url)
         if parsed.scheme not in ("http", "https"):
             raise SSRFVulnerabilityError(f"Unsupported URL scheme: {parsed.scheme}")
@@ -84,19 +88,27 @@ class ActionEngine:
             raise SSRFVulnerabilityError("Invalid URL: No hostname provided.")
         
         defaults = self.agent_config.global_defaults.api_request
-        allowed_hosts = defaults.allowed_hostnames
+        allowed_hosts = set(h.lower() for h in defaults.allowed_hostnames)
 
         # Block obvious local/private hostnames unless explicitly bypassed
-        forbidden_hosts = ["localhost", "127.0.0.1", "0.0.0.0", "::1"]
+        forbidden_hosts = {"localhost", "127.0.0.1", "0.0.0.0", "::1"}
         if (hostname.lower() not in allowed_hosts) and (hostname.lower() in forbidden_hosts):
             raise SSRFVulnerabilityError(f"Access to internal hostname '{hostname}' is forbidden.")
 
+        # Resolve the hostname to real IPs and validate against private/loopback ranges
+        # This catches DNS rebinding where a hostname initially resolves to a public IP
+        # but later resolves to 127.0.0.1 or a private IP.
         try:
-            ip = ipaddress.ip_address(hostname)
-            if (hostname.lower() not in allowed_hosts) and (ip.is_private or ip.is_loopback):
-                raise SSRFVulnerabilityError(f"Access to private IP '{hostname}' is forbidden.")
-        except ValueError:
-            pass
+            addr_info = socket.getaddrinfo(hostname, None, family=socket.AF_UNSPEC, type=socket.SOCK_STREAM)
+            for _, _, _, _, sockaddr in addr_info:
+                resolved_ip = sockaddr[0]
+                ip = ipaddress.ip_address(resolved_ip)
+                if (hostname.lower() not in allowed_hosts) and (ip.is_private or ip.is_loopback):
+                    raise SSRFVulnerabilityError(
+                        f"Access to private IP '{resolved_ip}' resolved from hostname '{hostname}' is forbidden."
+                    )
+        except socket.gaierror as e:
+            raise SSRFVulnerabilityError(f"Unable to resolve hostname '{hostname}': {e}")
 
     def _load_agent_config(self, path: str) -> AgentConfiguration:
         try:
@@ -119,8 +131,12 @@ class ActionEngine:
             with open(path, "r") as f:
                 data = json.load(f)
 
-            # The root must be a dictionary (JSON object)
-            if not isinstance(data, dict):
+            # Support backward-compatible JSON array format
+            if isinstance(data, list):
+                return self._parse_actions_list(data)
+
+            # The root must be a dictionary (JSON object) with required keys
+            if not isinstance(data, dict) or "actions" not in data or "version" not in data:
                 raise InvalidActionStructure("Actions config must be a JSON object")
 
             config = ActionsConfiguration(**data)
@@ -162,7 +178,20 @@ class ActionEngine:
     def _compile_and_load_proto(self, proto_path: str):
         from grpc_tools import protoc
         
+        if ".." in proto_path:
+            raise ProtoNotFound(f"Invalid proto path: {proto_path}")
+
         abs_proto_path = os.path.abspath(proto_path)
+        abs_allowed_dir = os.path.abspath(self.ALLOWED_PROTO_DIR)
+
+        try:
+            common = os.path.commonpath([abs_proto_path, abs_allowed_dir])
+        except ValueError:
+            raise ProtoNotFound(f"Proto path outside allowed directory: {proto_path}")
+
+        if common != abs_allowed_dir:
+            raise ProtoNotFound(f"Proto path outside allowed directory: {proto_path}")
+
         if not os.path.exists(abs_proto_path):
             raise ProtoNotFound(f"Proto file not found: {abs_proto_path}")
 
@@ -383,7 +412,7 @@ class ActionEngine:
 
         logger.info(f"Executing Async HTTP {config.method} {url}")
 
-        timeout_seconds = (config.timeout or 10000) / 1000.0
+        timeout_seconds = (config.timeout if config.timeout is not None else 10000) / 1000.0
         request_auth = None
         if config.auth and "username" in config.auth and "password" in config.auth:
             request_auth = (config.auth["username"], config.auth["password"])
@@ -442,7 +471,7 @@ class ActionEngine:
             if config.embedding_config is not None:
                 query_vector = generate_embedding(topic_text, config.embedding_config)
                 driver = get_vector_driver(config.connector)
-                search_results = driver.search(query_vector, config)
+                search_results = await driver.search(query_vector, config)
                 return self._parse_response({"data": search_results}, action.response_config)
             
         except (UnsupportedDatabaseDriver, EmbeddingGenerationError, VectorSearchError) as e:
@@ -492,10 +521,15 @@ class ActionEngine:
             metadata = tuple((k.lower(), str(v)) for k, v in config.headers.items())
 
         logger.info(f"Executing Async gRPC {config.host}/{config.service}/{config.method}")
-        timeout_seconds = (config.timeout or 10000) / 1000.0
+        timeout_seconds = (config.timeout if config.timeout is not None else 10000) / 1000.0
 
         try:
-            async with grpc.aio.insecure_channel(config.host) as channel:
+            if config.allow_insecure:
+                channel = grpc.aio.insecure_channel(config.host)
+            else:
+                credentials = grpc.ssl_channel_credentials()
+                channel = grpc.aio.secure_channel(config.host, credentials)
+            async with channel:
                 stub_class = getattr(pb2_grpc, stub_class_name)
                 stub = stub_class(channel)
                 rpc_method = getattr(stub, config.method)

@@ -1,5 +1,6 @@
 # services/action_service.py
 import json
+import os
 import shutil
 import logging
 import re
@@ -250,6 +251,26 @@ class ActionService:
                 logger.info(f"Removed old backup: {old_backup}")
         except Exception as e:
             logger.warning(f"Failed to cleanup backups: {e}")
+
+    def _resolve_backup_path(self, filename: str) -> None:
+        """
+        Validate that *filename* does not contain path traversal and that the
+        resolved absolute path is still inside the backup directory.
+        Raises NotFoundException if validation fails.
+        """
+        if ".." in filename or os.path.isabs(filename):
+            raise NotFoundException(f"Invalid backup filename: {filename}")
+
+        backup_path = self.backup_dir / filename
+        abs_backup = backup_path.resolve()
+        abs_backup_dir = self.backup_dir.resolve()
+
+        if os.path.commonpath([abs_backup, abs_backup_dir]) != str(abs_backup_dir):
+            raise NotFoundException(f"Invalid backup filename: {filename}")
+
+        # Also enforce naming convention
+        if not filename.startswith("actions_backup_") or not filename.endswith(".json"):
+            raise NotFoundException(f"Invalid backup filename: {filename}")
 
     # =========================================================================
     # ID Generation
@@ -744,10 +765,8 @@ class ActionService:
 
     async def get_backup_content(self, filename: str) -> Dict[str, Any]:
         """Get content of a specific backup file"""
+        self._resolve_backup_path(filename)
         backup_path = self.backup_dir / filename
-
-        if not filename.startswith("actions_backup_") or not filename.endswith(".json"):
-            raise NotFoundException(f"Invalid backup filename: {filename}")
 
         if not backup_path.exists():
             raise NotFoundException(f"Backup '{filename}' not found")
@@ -767,10 +786,8 @@ class ActionService:
 
     async def restore_backup(self, filename: str) -> Dict[str, Any]:
         """Restore actions from a backup file"""
+        self._resolve_backup_path(filename)
         backup_path = self.backup_dir / filename
-
-        if not filename.startswith("actions_backup_") or not filename.endswith(".json"):
-            raise NotFoundException(f"Invalid backup filename: {filename}")
 
         if not backup_path.exists():
             raise NotFoundException(f"Backup '{filename}' not found")
@@ -818,10 +835,8 @@ class ActionService:
 
     async def delete_backup(self, filename: str) -> Dict[str, str]:
         """Delete a specific backup file"""
+        self._resolve_backup_path(filename)
         backup_path = self.backup_dir / filename
-
-        if not filename.startswith("actions_backup_") or not filename.endswith(".json"):
-            raise NotFoundException(f"Invalid backup filename: {filename}")
 
         if not backup_path.exists():
             raise NotFoundException(f"Backup '{filename}' not found")

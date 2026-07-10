@@ -16,6 +16,7 @@ class ExternalTicketCreate(BaseModel):
     title: str = Field(..., min_length=5, max_length=500)
     description: str = Field(..., min_length=10)
     priority: TicketPriority = Field(..., description="Priority level")
+    ticket_type: TicketType = Field(default=TicketType.SUPPORT, description="Ticket type (SUPPORT or TECH)")
     
     @field_validator('title', 'description', 'customer_name')
     @classmethod
@@ -30,7 +31,8 @@ class ExternalTicketCreate(BaseModel):
                 "customer_name": "Ahmed Mohamed",
                 "title": "Cannot login to my account",
                 "description": "I keep getting 'Invalid credentials' error",
-                "priority": "high"
+                "priority": "high",
+                "ticket_type": "SUPPORT"
             }
         }
     )

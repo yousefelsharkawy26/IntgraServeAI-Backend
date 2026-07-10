@@ -235,10 +235,10 @@ class ConflictException(BaseAPIException):
 
 
 class InvalidTokenException(BaseAPIException):
-    """Exception for invalid or expired tokens (HTTP 400)."""
+    """Exception for invalid or expired tokens (HTTP 401)."""
     def __init__(self, message: str = "Invalid Link."):
         super().__init__(
-            status_code=status.HTTP_400_BAD_REQUEST,
+            status_code=status.HTTP_401_UNAUTHORIZED,
             message=message
         )
 

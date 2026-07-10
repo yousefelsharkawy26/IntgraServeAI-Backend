@@ -27,6 +27,15 @@ from utils.exceptions import (
 pytestmark = [pytest.mark.integration, pytest.mark.slow]
 
 
+@pytest.fixture(autouse=True)
+def patch_allowed_proto_dir(grpc_test_proto_dir):
+    """Allow the temporary proto directory for these integration tests."""
+    original = ActionEngine.ALLOWED_PROTO_DIR
+    ActionEngine.ALLOWED_PROTO_DIR = str(grpc_test_proto_dir)
+    yield
+    ActionEngine.ALLOWED_PROTO_DIR = original
+
+
 @pytest.fixture
 def rpc_agent_config(write_temp_json):
     return write_temp_json({
@@ -160,7 +169,8 @@ class TestFullRpcCall:
                 "service": "PaymentService",
                 "method": "RefundTransaction",
                 "proto_file": str(grpc_test_proto_dir / "payment.proto"),
-                "headers": {"x-admin-key": "secret-admin-key"}
+                "headers": {"x-admin-key": "secret-admin-key"},
+                "allow_insecure": True
             },
             "parameters": {
                 "transaction_id": {
@@ -205,7 +215,8 @@ class TestFullRpcCall:
                 "service": "PaymentService",
                 "method": "RefundTransaction",
                 "proto_file": str(grpc_test_proto_dir / "payment.proto"),
-                "headers": {}
+                "headers": {},
+                "allow_insecure": True
             },
             "parameters": {
                 "transaction_id": {
@@ -236,7 +247,8 @@ class TestFullRpcCall:
                 "method": "RefundTransaction",
                 "proto_file": str(grpc_test_proto_dir / "payment.proto"),
                 "headers": {"x-admin-key": "secret-admin-key"},
-                "timeout": 1
+                "timeout": 1,
+                "allow_insecure": True
             },
             "parameters": {
                 "transaction_id": {

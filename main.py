@@ -8,6 +8,7 @@ import time
 import logging
 from core.config import settings
 from apis import api_router
+from ai_engine.vector_search import EmbeddingProviderError
 from utils.exceptions import (
     BaseAPIException,
     AuthenticationException,
@@ -33,14 +34,14 @@ async def lifespan(app: FastAPI):
         
         engine = AIGatewayService.get_engine()
         
-        # Deduplicate configurations by (provider, base_url, model)
+        # Deduplicate configurations by (provider, base_url, model_name)
         unique_configs = {}
         for action in engine.actions:
             if action.type == "vector_query" and action.execution_config:
                 embedding_config = action.execution_config.embedding_config
                 if embedding_config:
                     # Create a unique key for this configuration
-                    config_key = f"{embedding_config.provider}:{getattr(embedding_config, 'base_url', 'default')}:{embedding_config.model}"
+                    config_key = f"{embedding_config.provider}:{getattr(embedding_config, 'base_url', 'default')}:{embedding_config.model_name}"
                     if config_key not in unique_configs:
                         unique_configs[config_key] = {
                             'config': embedding_config,
@@ -57,11 +58,11 @@ async def lifespan(app: FastAPI):
             action_names = config_data['actions']
             
             try:
-                validate_embedding_provider(embedding_config)
+                await validate_embedding_provider(embedding_config)
                 logger.info(f"✅ Embedding provider validated: {config_key}")
                 logger.info(f"   Used by {len(action_names)} action(s): {', '.join(action_names[:3])}{'...' if len(action_names) > 3 else ''}")
                 validated_count += 1
-            except Exception as e:
+            except EmbeddingProviderError as e:
                 logger.warning(f"⚠️  Embedding provider validation failed: {config_key}")
                 logger.warning(f"   Error: {e}")
                 logger.warning(f"   {len(action_names)} action(s) may fail at runtime: {', '.join(action_names[:3])}{'...' if len(action_names) > 3 else ''}")
@@ -72,11 +73,16 @@ async def lifespan(app: FastAPI):
         if warning_count > 0:
             logger.warning(f"⚠️  {warning_count} embedding provider configuration(s) failed validation")
             
-    except Exception as e:
+    except EmbeddingProviderError as e:
         logger.error(f"❌ Failed to validate embedding providers: {e}")
         logger.error("   Vector search actions may fail at runtime.")
     
     logger.info("🚀 Application started successfully")
+    
+    # Warn if DEBUG is enabled in a non-local environment (stack-trace exposure risk)
+    if settings.DEBUG and "localhost" not in settings.BASE_URL.lower():
+        logger.warning("⚠️  DEBUG=True is set in a non-local environment (BASE_URL=%s). This exposes stack traces and sensitive details in error responses. Set DEBUG=False for production.", settings.BASE_URL)
+    
     yield
     logger.info("🛑 Application shutdown complete")
 
@@ -94,7 +100,7 @@ app = FastAPI(
 # CORS Middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000","http://localhost:8000"],
+    allow_origins=settings.CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

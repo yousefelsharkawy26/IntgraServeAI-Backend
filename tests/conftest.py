@@ -1,8 +1,9 @@
 import json
 import os
+import socket
 import sys
 from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch, MagicMock, AsyncMock
 
 import pytest
 
@@ -89,7 +90,7 @@ def mock_generate_embedding():
 def mock_get_vector_driver():
     with patch("ai_engine.action_engine.get_vector_driver") as m:
         driver = MagicMock()
-        driver.search.return_value = [{"id": 1, "name": "Product"}]
+        driver.search = AsyncMock(return_value=[{"id": 1, "name": "Product"}])
         m.return_value = driver
         yield m
 
@@ -98,5 +99,18 @@ def mock_get_vector_driver():
 def mock_grpc_insecure_channel():
     with patch("ai_engine.action_engine.grpc.insecure_channel") as m:
         yield m
+
+
+@pytest.fixture(autouse=True)
+def mock_socket_getaddrinfo():
+    """Mock DNS resolution so SSRF validation in _validate_url_safety does not
+    fail in environments without real network access (e.g., CI)."""
+    def fake_getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):
+        # Return a fake public IP for any hostname so the action engine
+        # URL validation does not raise SSRFVulnerabilityError during tests.
+        return [(socket.AF_INET, socket.SOCK_STREAM, 0, "", ("93.184.216.34", port))]
+
+    with patch("ai_engine.action_engine.socket.getaddrinfo", side_effect=fake_getaddrinfo):
+        yield
 
 pytest_plugins = ["unit.ai_engine_test.fixtures.mock_llm"]

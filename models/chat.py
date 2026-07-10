@@ -32,12 +32,14 @@ class ChatConversation(BaseModel):
     is_active = Column(Boolean, default=True, nullable=False, index=True)
     started_at = Column(DateTime(timezone=True), nullable=False, index=True)
     ended_at = Column(DateTime(timezone=True), nullable=True)
+    assigned_agent_id = Column(UUID(as_uuid=True), ForeignKey('users.id', ondelete='SET NULL'), nullable=True, index=True)
     pending_state = Column(JSONVariant, nullable=True)  # Stores serialized messages + pause metadata
     ai_context = Column(JSONVariant, nullable=True)     # Optional metadata for the AI session
 
     messages = relationship('ChatMessage', back_populates='conversation', cascade='all, delete-orphan')
     rating = relationship('AgentRating', back_populates='conversation', uselist=False, cascade='all, delete-orphan')
     action_logs = relationship('ActionExecutionLog', back_populates='chat_conversation', cascade='all, delete-orphan')
+    assigned_agent = relationship('User', foreign_keys=[assigned_agent_id])
 
     def __repr__(self):
         return f"<ChatConversation {self.session_id}>"

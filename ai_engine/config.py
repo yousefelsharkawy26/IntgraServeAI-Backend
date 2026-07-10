@@ -130,6 +130,7 @@ class ExecutionConfig(BaseModel):
     host: Optional[str] = None
     service: Optional[str] = None
     proto_file: Optional[str] = None
+    allow_insecure: Optional[bool] = False
     driver_options: Optional[Dict[str, Any]] = None
     
     @model_validator(mode='before')

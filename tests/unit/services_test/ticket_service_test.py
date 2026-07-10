@@ -57,6 +57,7 @@ async def test_create_external_ticket(ticket_service, mock_db_session):
     ticket_data.external_customer_id = "123"
     ticket_data.customer_email = "c@e.com"
     ticket_data.customer_name = "Cust"
+    ticket_data.ticket_type = TicketType.SUPPORT
     
     ticket = await ticket_service.create_external_ticket(ticket_data)
     assert ticket.ticket_type == TicketType.SUPPORT
@@ -91,6 +92,23 @@ async def test_update_status_invalid_transition(ticket_service, mock_db_session,
     mock_db_session.execute.return_value = MockResult(mock_ticket)
     with pytest.raises(BadRequestException):
         await ticket_service.update_ticket_status(mock_ticket.id, TicketStatus.CLOSED, "notes", uuid4(), ["Admin"])
+
+@pytest.mark.asyncio
+@patch("services.ticket_service.email_service")
+async def test_reopen_closed_ticket_admin_only(mock_email, ticket_service, mock_db_session, mock_ticket, mock_user):
+    mock_ticket.status = TicketStatus.CLOSED
+    mock_ticket.assignee_id = mock_user.id
+    mock_db_session.execute.return_value = MockResult(mock_ticket)
+    
+    # Admin should succeed
+    result = await ticket_service.update_ticket_status(mock_ticket.id, TicketStatus.OPEN, "notes", uuid4(), ["Admin"])
+    assert mock_ticket.status == TicketStatus.OPEN
+    
+    # Reset for non-admin test
+    mock_ticket.status = TicketStatus.CLOSED
+    with pytest.raises(BadRequestException) as exc_info:
+        await ticket_service.update_ticket_status(mock_ticket.id, TicketStatus.OPEN, "notes", mock_user.id, ["Support User"])
+    assert "admin" in str(exc_info.value).lower()
 
 @pytest.mark.asyncio
 async def test_toggle_reassign_ticket(ticket_service, mock_db_session, mock_ticket):

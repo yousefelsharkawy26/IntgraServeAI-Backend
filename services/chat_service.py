@@ -111,14 +111,12 @@ class ChatService:
     async def get_conversation(
         self,
         conversation_id: UUID,
-        with_messages: bool = False,
     ) -> ChatConversation:
-        q = select(ChatConversation).where(ChatConversation.id == conversation_id)
-        if with_messages:
-            q = q.options(
-                selectinload(ChatConversation.messages).selectinload(ChatMessage.attachments),
-                selectinload(ChatConversation.rating),
-            )
+        q = (
+            select(ChatConversation)
+            .where(ChatConversation.id == conversation_id)
+            .options(selectinload(ChatConversation.rating))
+        )
         result = await self.db.execute(q)
         conv = result.scalar_one_or_none()
         if not conv:
@@ -245,14 +243,14 @@ class ChatService:
         self,
         conversation_id: UUID,
         content: str,
-        sender_type: str = "CUSTOMER",
+        sender_type: SenderType = SenderType.CUSTOMER,
     ) -> ChatMessage:
         # Validate conversation exists
         await self.get_conversation(conversation_id)
 
         msg = ChatMessage(
             chat_conversation_id=conversation_id,
-            sender_type=SenderType(sender_type.lower()),
+            sender_type=sender_type,
             message_text=content,
         )
         self.db.add(msg)

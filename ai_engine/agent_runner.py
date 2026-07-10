@@ -246,7 +246,7 @@ class AgentRunner:
                             error_msg = f"VALIDATION_ERROR: Invalid input parameters"
                             logger.error(f"{error_type}: {error_str}")
                         else:
-                            error_msg = f"TOOL_EXECUTION_ERROR: Tool execution failed"
+                            error_msg = f"TOOL_EXECUTION_ERROR: {error_str}"
                             logger.error(f"{error_type}: {error_str}")
                         
                         yield {

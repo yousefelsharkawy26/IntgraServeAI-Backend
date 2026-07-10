@@ -61,6 +61,7 @@ class ForgotPasswordResponse(BaseModel):
 
 class ResetPasswordRequest(BaseModel):
     """Reset password request schema"""
+    token: str = Field(..., description="Password reset token from email")
     new_password: str = Field(
         ...,
         description="New password",
@@ -79,6 +80,7 @@ class ResetPasswordRequest(BaseModel):
     class Config:
         json_schema_extra = {
             "example": {
+                "token": "reset_token_example",
                 "new_password": "newpassword123"
             }
         }

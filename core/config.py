@@ -1,7 +1,7 @@
 # core/config.py
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from typing import List
+from typing import List, Optional
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -15,7 +15,7 @@ class Settings(BaseSettings):
 
     APP_NAME: str = "AI Customer Support System"
     APP_VERSION: str = "1.0.0"
-    DEBUG: bool = True
+    DEBUG: bool = False
     BASE_URL: str = "http://localhost:8000"
     FRONTEND_URL: str = "http://localhost:3000"
     
@@ -38,6 +38,9 @@ class Settings(BaseSettings):
         return f"postgresql+asyncpg://{self.POSTGRES_USER}:{self.POSTGRES_PASSWORD}@{self.POSTGRES_HOST}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
 
     
+    # Encryption
+    ENCRYPTION_KEY: Optional[str] = None  # Dedicated app-level encryption key (recommended)
+
     # JWT Settings
     SECRET_KEY: str
     ALGORITHM: str = "HS256"

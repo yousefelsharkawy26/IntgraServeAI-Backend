@@ -41,7 +41,7 @@ class TicketService:
         
         # Create ticket
         ticket = Ticket(
-            ticket_type=TicketType.SUPPORT,
+            ticket_type=ticket_data.ticket_type,
             title=ticket_data.title,
             description=ticket_data.description,
             external_customer_id=ticket_data.external_customer_id,
@@ -589,7 +589,7 @@ class TicketService:
         
         # Send email notification
         try:
-            email_service.send_ticket_assigned(
+            await email_service.send_ticket_assigned(
                 to_email=ticket.customer_email,
                 customer_name=ticket.customer_name,
                 ticket_id=str(ticket.id),
@@ -628,10 +628,16 @@ class TicketService:
             raise NotFoundException("Ticket not found")
         
         # ✅ FIX: Prevent updating closed/resolved/canceled tickets
+        # Admin-only exception: reopening a closed ticket
         if ticket.status in [TicketStatus.RESOLVED, TicketStatus.CLOSED, TicketStatus.CANCELED]:
-            raise BadRequestException(
-                f"Cannot update status of a {ticket.status.value} ticket"
-            )
+            is_admin = "Admin" in user_roles
+            is_reopening_closed = ticket.status == TicketStatus.CLOSED and new_status == TicketStatus.OPEN
+            if not (is_admin and is_reopening_closed):
+                if is_reopening_closed:
+                    raise BadRequestException("Only admins can reopen a closed ticket")
+                raise BadRequestException(
+                    f"Cannot update status of a {ticket.status.value} ticket"
+                )
         
         # ✅ FIX: Validate user can modify this ticket
         if "Admin" not in user_roles:
@@ -654,8 +660,12 @@ class TicketService:
                     f"You don't have permission to update {ticket.ticket_type.value.upper()} tickets"
                 )
         
-        # Validate status transition
-        self._validate_status_transition(ticket.status, new_status)
+        # Only admins can reopen a closed ticket
+        if ticket.status == TicketStatus.CLOSED and new_status == TicketStatus.OPEN:
+            if "Admin" not in user_roles:
+                raise BadRequestException("Only admins can reopen a closed ticket")
+        else:
+            self._validate_status_transition(ticket.status, new_status)
         
         # Update status
         old_status = ticket.status
@@ -689,7 +699,7 @@ class TicketService:
             user = result.scalar_one_or_none()
             updated_by = user.full_name if user else "Support Team"
             
-            email_service.send_ticket_status_update(
+            await email_service.send_ticket_status_update(
                 to_email=ticket.customer_email,
                 customer_name=ticket.customer_name,
                 ticket_id=str(ticket.id),
@@ -888,7 +898,7 @@ class TicketService:
         
         # Send email notification
         try:
-            email_service.send_ticket_resolved(
+            await email_service.send_ticket_resolved(
                 to_email=ticket.customer_email,
                 customer_name=ticket.customer_name,
                 ticket_id=str(ticket.id),
@@ -1210,7 +1220,7 @@ class TicketService:
         # Send email notification (if not internal note)
         if not is_internal_note:
             try:
-                email_service.send_new_message_notification(
+                await email_service.send_new_message_notification(
                     to_email=ticket.customer_email,
                     customer_name=ticket.customer_name,
                     ticket_id=str(ticket.id),
@@ -1294,7 +1304,7 @@ class TicketService:
                 assignee = result.scalar_one_or_none()
                 
                 if assignee:
-                    email_service.send_new_message_notification(
+                    await email_service.send_new_message_notification(
                         to_email=assignee.email,
                         customer_name=assignee.full_name,
                         ticket_id=str(ticket.id),
@@ -1648,7 +1658,7 @@ class TicketService:
             TicketStatus.PENDING: [TicketStatus.IN_PROGRESS, TicketStatus.RESOLVED, TicketStatus.CANCELED],
             TicketStatus.ESCALATED: [TicketStatus.IN_PROGRESS, TicketStatus.RESOLVED, TicketStatus.CANCELED],
             TicketStatus.RESOLVED: [TicketStatus.CLOSED, TicketStatus.OPEN],
-            TicketStatus.CLOSED: [TicketStatus.OPEN],
+            TicketStatus.CLOSED: [],
             TicketStatus.CANCELED: []
         }
         
@@ -1678,3 +1688,6 @@ class TicketService:
             created_at=datetime.now(timezone.utc)
         )
         self.db.add(audit_log)
+        # Flush so the audit log is persisted even if the caller forgets to commit.
+        # The caller still owns the transaction boundary (commit/rollback).
+        await self.db.flush()
