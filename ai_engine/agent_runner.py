@@ -59,6 +59,54 @@ class AgentRunner:
             self.llm_with_tools = self.llm
         logger.info(f"Reloaded {len(self.tools)} tools from action engine.")
 
+    def _to_ai_message(self, ai_message_chunk: BaseMessage) -> AIMessage:
+        """Convert a streamed AIMessageChunk into a stable AIMessage for history.
+
+        Chat model history should contain full message objects, not streaming
+        chunks. Keeping AIMessageChunk in working_messages can make the next
+        provider invocation fail when LangChain serializes the transcript after
+        tool execution.
+        """
+        return AIMessage(
+            content=getattr(ai_message_chunk, "content", "") or "",
+            additional_kwargs=getattr(ai_message_chunk, "additional_kwargs", {}) or {},
+            response_metadata=getattr(ai_message_chunk, "response_metadata", {}) or {},
+            tool_calls=getattr(ai_message_chunk, "tool_calls", []) or [],
+            invalid_tool_calls=getattr(ai_message_chunk, "invalid_tool_calls", []) or [],
+            usage_metadata=getattr(ai_message_chunk, "usage_metadata", None),
+            id=getattr(ai_message_chunk, "id", None),
+            name=getattr(ai_message_chunk, "name", None),
+        )
+
+    def _log_ai_message_chunk(self, ai_message_chunk: BaseMessage) -> None:
+        logger.info("AgentRunner ai_message_chunk type=%s", type(ai_message_chunk))
+        logger.info("AgentRunner ai_message_chunk repr=%r", ai_message_chunk)
+
+    def _log_working_messages(self, working_messages: List[BaseMessage], iteration_count: int) -> None:
+        logger.info(
+            "AgentRunner invoking LLM iteration=%s message_count=%s",
+            iteration_count,
+            len(working_messages),
+        )
+        for index, message in enumerate(working_messages):
+            content = getattr(message, "content", None)
+            logger.info(
+                "AgentRunner message[%s] type=%s class=%s content_type=%s content_repr=%r",
+                index,
+                getattr(message, "type", None),
+                message.__class__.__name__,
+                type(content),
+                content,
+            )
+
+    def _make_tool_message(self, tool_id: str, result: Any) -> ToolMessage:
+        result_str = result if isinstance(result, str) else str(result)
+        tool_message = ToolMessage(content=result_str, tool_call_id=tool_id)
+        logger.info("AgentRunner tool result type=%s repr=%r", type(result), result)
+        logger.info("AgentRunner tool result_str type=%s repr=%r", type(result_str), result_str)
+        logger.info("AgentRunner ToolMessage repr=%r", tool_message)
+        return tool_message
+
     async def stream_chat(
         self,
         messages: List[BaseMessage],
@@ -128,6 +176,8 @@ class AgentRunner:
 
                 ai_message_chunk = None
 
+                self._log_working_messages(working_messages, iteration_count)
+
                 async for chunk in self.llm_with_tools.astream(working_messages):
                     if cancel_token and cancel_token.is_set():
                         logger.info("Generation aborted by user mid-stream.")
@@ -145,9 +195,12 @@ class AgentRunner:
                             "correlation_id": get_correlation_id(),
                         }
 
+                if ai_message_chunk is not None:
+                    self._log_ai_message_chunk(ai_message_chunk)
+
                 if not ai_message_chunk or not getattr(ai_message_chunk, "tool_calls", []):
                     if ai_message_chunk is not None:
-                        working_messages.append(ai_message_chunk)
+                        working_messages.append(self._to_ai_message(ai_message_chunk))
                     yield {
                         "type": "done",
                         "correlation_id": get_correlation_id(),
@@ -287,9 +340,9 @@ class AgentRunner:
                     }
                     return
 
-                working_messages.append(ai_message_chunk)
+                working_messages.append(self._to_ai_message(ai_message_chunk))
                 for tool_id, result_str in tool_results:
-                    working_messages.append(ToolMessage(content=result_str, tool_call_id=tool_id))
+                    working_messages.append(self._make_tool_message(tool_id, result_str))
         finally:
             if token is not None:
                 set_correlation_id(None)
