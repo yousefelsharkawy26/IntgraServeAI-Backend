@@ -1,6 +1,7 @@
 import os
 import sys
 import socket
+import asyncio
 import tempfile
 import importlib
 import json
@@ -15,7 +16,9 @@ from jsonpath_ng import parse as jsonpath_parse
 from langchain_core.tools import StructuredTool
 
 import ipaddress
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urlencode
+from urllib import request as urllib_request
+from urllib.error import HTTPError as UrllibHTTPError, URLError
 from filelock import FileLock
 
 from .config import AgentConfiguration, ActionDefinition, ResponseConfig, EmbeddingConfig, ActionsConfiguration
@@ -243,15 +246,21 @@ class ActionEngine:
                 config = action.execution_config
                 api_def = defaults.api_request
 
-                merged_headers = api_def.headers.copy()
-                if config.headers:
-                    merged_headers.update(config.headers)
-
                 new_protocol = config.protocol or api_def.protocol
                 new_timeout = config.timeout if config.timeout is not None else api_def.timeout
 
                 new_url = config.url
-                if new_url and not new_url.startswith("http"):
+                is_absolute_url = bool(new_url and new_url.startswith(("http://", "https://")))
+
+                # Global API headers often contain auth for the project's primary API.
+                # Do not leak/inherit those headers for absolute third-party URLs
+                # such as https://fakestoreapi.com/products unless explicitly set
+                # on the action itself.
+                merged_headers = {} if is_absolute_url else api_def.headers.copy()
+                if config.headers:
+                    merged_headers.update(config.headers)
+
+                if new_url and not is_absolute_url:
                     if api_def.base_url:
                         clean_base = api_def.base_url.rstrip("/")
                         if not clean_base.startswith("http"):
@@ -380,6 +389,55 @@ class ActionEngine:
                 )
         return str_value
 
+    def _format_action_error(self, action: ActionDefinition, err_msg: str) -> str:
+        fallback = action.response_config.on_error if action.response_config else None
+        if not fallback:
+            return err_msg
+        if "{{error}}" in fallback:
+            return fallback.replace("{{error}}", err_msg)
+        return f"{fallback}: {err_msg}"
+
+    def _describe_request_error(self, exc: Exception) -> str:
+        details = str(exc).strip() or repr(exc)
+        cause = getattr(exc, "__cause__", None)
+        if cause:
+            cause_text = str(cause).strip() or repr(cause)
+            details = f"{details}; cause={cause_text}"
+        return details
+
+    def _urllib_request_sync(
+        self,
+        method: str,
+        url: str,
+        headers: Dict[str, str],
+        query_params: Dict[str, Any],
+        body_params: Dict[str, Any],
+        timeout_seconds: float,
+    ) -> Any:
+        if query_params:
+            separator = "&" if "?" in url else "?"
+            url = f"{url}{separator}{urlencode(query_params, doseq=True)}"
+
+        body = None
+        request_headers = dict(headers)
+        if body_params:
+            body = json.dumps(body_params).encode("utf-8")
+            request_headers.setdefault("Content-Type", "application/json")
+
+        req = urllib_request.Request(url, data=body, headers=request_headers, method=method)
+        try:
+            with urllib_request.urlopen(req, timeout=timeout_seconds) as response:
+                raw = response.read().decode("utf-8")
+                try:
+                    return json.loads(raw)
+                except ValueError:
+                    return raw
+        except UrllibHTTPError as e:
+            raw = e.read().decode("utf-8", errors="replace")
+            raise ExecutionException(f"Error {e.code}: {raw}") from e
+        except URLError as e:
+            raise ExecutionException(f"API Request Failed: {self._describe_request_error(e)}") from e
+
     async def _execute_api_request(self, action: ActionDefinition, **kwargs):
         config = action.execution_config
         url = config.url
@@ -454,16 +512,38 @@ class ActionEngine:
         except httpx.HTTPStatusError as e:
             logger.error(f"API returned {e.response.status_code}: {e.response.text}")
             err_str = str(data) if 'data' in locals() else e.response.text
-            if action.response_config and action.response_config.on_error:
-                raise ExecutionException(action.response_config.on_error.replace("{{error}}", err_str))
-            raise ExecutionException(f"Error {e.response.status_code}: {err_str}")
+            raise ExecutionException(self._format_action_error(action, f"HTTP {e.response.status_code}: {err_str}")) from e
+
+        except httpx.ConnectError as e:
+            logger.warning(
+                "HTTPX connect failed for %s; retrying with urllib fallback. Error: %s",
+                url,
+                self._describe_request_error(e),
+                exc_info=True,
+            )
+            try:
+                data = await asyncio.to_thread(
+                    self._urllib_request_sync,
+                    config.method,
+                    url,
+                    request_headers,
+                    query_params,
+                    body_params,
+                    timeout_seconds,
+                )
+                return self._parse_response(data, action.response_config)
+            except Exception as fallback_error:
+                err_msg = (
+                    f"httpx={self._describe_request_error(e)}; "
+                    f"urllib_fallback={self._describe_request_error(fallback_error)}"
+                )
+                logger.error("API Request Failed after fallback: %s", err_msg, exc_info=True)
+                raise ExecutionException(self._format_action_error(action, err_msg)) from fallback_error
 
         except httpx.RequestError as e:
-            logger.exception("API Request Failed")
-            err_msg = str(e)
-            if action.response_config and action.response_config.on_error:
-                raise ExecutionException(action.response_config.on_error.replace("{{error}}", err_msg))
-            raise ExecutionException(f"API Request Failed: {err_msg}") from e
+            err_msg = self._describe_request_error(e)
+            logger.exception("API Request Failed: %s", err_msg)
+            raise ExecutionException(self._format_action_error(action, err_msg)) from e
 
 
     async def _execute_internal(self, action: ActionDefinition, **kwargs):
