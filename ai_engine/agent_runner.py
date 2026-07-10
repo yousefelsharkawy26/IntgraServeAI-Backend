@@ -15,7 +15,7 @@ from .vector_search import (
 )
 from utils.exceptions import (
     ActionRequiresConfirmationError, ParsingException, ExecutionException,
-    CorrelationIdAdapter, get_correlation_id, set_correlation_id,
+    EmbeddingGenerationError, CorrelationIdAdapter, get_correlation_id, set_correlation_id,
 )
 
 logger = CorrelationIdAdapter(logging.getLogger(__name__))
@@ -224,7 +224,7 @@ class AgentRunner:
                         }
                         break
 
-                    except (OllamaConnectionError, OllamaModelError, ProviderAuthenticationError, ProviderTimeoutError, EmbeddingProviderError) as e:
+                    except (OllamaConnectionError, OllamaModelError, ProviderAuthenticationError, ProviderTimeoutError, EmbeddingProviderError, EmbeddingGenerationError) as e:
                         # Infrastructure errors - use simplified machine-readable markers
                         error_type = type(e).__name__
                         

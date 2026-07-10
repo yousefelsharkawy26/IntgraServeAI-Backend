@@ -274,17 +274,18 @@ class ActionEngine:
                 config = action.execution_config
                 vec_def = defaults.vector_query
 
-                new_connector = config.connector or vec_def.connector
-                new_connection_string = config.connection_string or vec_def.connection_string
                 action_config = config.embedding_config.model_dump() if config.embedding_config else {}
                 global_config = vec_def.embedding_config.model_dump() if vec_def.embedding_config else {}
-                merged = {**global_config, **{k: v for k, v in action_config.items() if v is not None}}
-                new_embedding_config = EmbeddingConfig(**merged) if merged else None
+                merged_embedding_config = {
+                    **global_config,
+                    **{k: v for k, v in action_config.items() if v is not None},
+                }
 
                 action.execution_config = config.model_copy(update={
-                    "connector": new_connector,
-                    "connection_string": new_connection_string,
-                    "embedding_config": new_embedding_config,
+                    "connector": config.connector or vec_def.connector,
+                    "connection_string": config.connection_string or vec_def.connection_string,
+                    "embedding_config": EmbeddingConfig(**merged_embedding_config) if merged_embedding_config else None,
+                    "max_results": config.max_results if config.max_results is not None else vec_def.max_results,
                 })
 
                 self._apply_response_fallback(action, vec_def.on_error)
@@ -292,16 +293,17 @@ class ActionEngine:
             elif action.type == "rpc_request" and defaults.rpc_request and action.execution_config:
                 config = action.execution_config
                 rpc_def = defaults.rpc_request
-                
+
                 merged_headers = rpc_def.headers.copy()
                 if config.headers:
                     merged_headers.update(config.headers)
-                
+
                 action.execution_config = config.model_copy(update={
+                    "protocol": config.protocol or rpc_def.protocol,
                     "headers": merged_headers,
                 })
-                
-                self._apply_response_fallback(action, defaults.rpc_request.on_error)
+
+                self._apply_response_fallback(action, rpc_def.on_error)
 
             elif action.type == "internal" and defaults.internal:
                 self._apply_response_fallback(action, defaults.internal.on_error)
