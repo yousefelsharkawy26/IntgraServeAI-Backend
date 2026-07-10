@@ -20,7 +20,7 @@ depends_on: Union[str, Sequence[str], None] = None
 def upgrade() -> None:
     op.create_table(
         'token_blacklist',
-        sa.Column('token_hash', sa.String(length=255), nullable=False, index=True),
+        sa.Column('token_hash', sa.String(length=255), nullable=False),
         sa.Column('token_type', sa.String(length=50), nullable=False),
         sa.Column('expires_at', sa.DateTime(timezone=True), nullable=False),
         sa.Column('id', sa.UUID(), nullable=False),
