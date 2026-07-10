@@ -553,7 +553,7 @@ async def get_conversation(
     **Auth:** Staff can view any. Customers can only view their own.
     """
     service = ChatService(db)
-    conv = await service.get_conversation(conversation_id)
+    conv = await _get_conversation_or_404(db, conversation_id)
 
     # Enforce access control
     _enforce_access(access, conv)
