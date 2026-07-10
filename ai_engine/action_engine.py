@@ -415,6 +415,16 @@ class ActionEngine:
         logger.info(f"Executing Async HTTP {config.method} {url}")
 
         timeout_seconds = (config.timeout if config.timeout is not None else 10000) / 1000.0
+
+        # Some public APIs/CDNs, including fakestoreapi.com, reject default
+        # Python/httpx user agents with 403. Send a stable product UA unless
+        # the action explicitly configured one.
+        request_headers = dict(config.headers or {})
+        if not any(header.lower() == "user-agent" for header in request_headers):
+            request_headers["User-Agent"] = "IntegraServeAI/1.0 (+https://integraserve.ai)"
+        if not any(header.lower() == "accept" for header in request_headers):
+            request_headers["Accept"] = "application/json, text/plain;q=0.9, */*;q=0.8"
+
         request_auth = None
         if config.auth and "username" in config.auth and "password" in config.auth:
             request_auth = (config.auth["username"], config.auth["password"])
@@ -424,7 +434,7 @@ class ActionEngine:
                 req_kwargs = {
                     "method": config.method,
                     "url": url,
-                    "headers": config.headers,
+                    "headers": request_headers,
                     "params": query_params,
                 }
                 if body_params:
