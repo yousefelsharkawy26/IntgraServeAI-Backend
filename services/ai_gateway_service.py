@@ -57,7 +57,8 @@ class AIGatewayService:
         db: AsyncSession,
         session_id: str,
         customer_email: str,
-        customer_name: str
+        customer_name: str,
+        allow_existing_identity_mismatch: bool = False,
     ) -> ChatConversation:
         result = await db.execute(
             select(ChatConversation).where(ChatConversation.session_id == session_id)
@@ -65,13 +66,16 @@ class AIGatewayService:
         conv = result.scalar_one_or_none()
 
         if conv:
-            if conv.customer_email != customer_email:
-                conv.customer_email = customer_email
-            if conv.customer_name != customer_name:
-                conv.customer_name = customer_name
+            # Existing conversations are identity-bound. Never rewrite the
+            # customer identity during a WebSocket reconnect/deep-link restore.
+            # Staff users may attach to an existing session without matching the
+            # customer email; customers must match exactly.
+            if conv.customer_email != customer_email and not allow_existing_identity_mismatch:
+                from utils.exceptions import UnauthorizedException
+                raise UnauthorizedException("Conversation session does not belong to this customer")
             if not conv.is_active:
                 conv.is_active = True
-            await db.commit()
+                await db.commit()
             return conv
 
         conv = ChatConversation(

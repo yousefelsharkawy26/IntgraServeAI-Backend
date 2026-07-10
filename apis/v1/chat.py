@@ -190,7 +190,11 @@ async def chat_websocket(websocket: WebSocket):
 
         async with AsyncSessionLocal() as db:
             conversation = await gateway.get_or_create_conversation(
-                db, session_id, customer_email, customer_name
+                db,
+                session_id,
+                customer_email,
+                customer_name,
+                allow_existing_identity_mismatch=bool(staff_user),
             )
             conversation_id = conversation.id
 
@@ -228,22 +232,26 @@ async def chat_websocket(websocket: WebSocket):
         # --- BACKGROUND GENERATION WORKER ---
         async def run_ai_stream(messages_state):
             runner = gateway.create_runner(customer_email, customer_name)
+            ai_text_chunks: list[str] = []
             try:
                 async for event in runner.stream_chat(messages_state, cancel_token=cancel_token):
                     ws_event = {k: v for k, v in event.items() if k != "_resume_state"}
                     await websocket.send_json(ws_event)
 
-                    if event["type"] == "pause":
+                    if event["type"] == "token":
+                        ai_text_chunks.append(str(event.get("content", "")))
+                    elif event["type"] == "pause":
                         async with AsyncSessionLocal() as db:
                             await gateway.save_pending_state(db, conversation_id, messages_state, event)
                         break
                     elif event["type"] == "done":
-                        ai_text = gateway.extract_ai_text(messages_state)
+                        ai_text = "".join(ai_text_chunks).strip() or gateway.extract_ai_text(messages_state)
                         async with AsyncSessionLocal() as db:
-                            await gateway.save_message(db, conversation_id, "AI", ai_text)
+                            if ai_text:
+                                await gateway.save_message(db, conversation_id, "AI", ai_text)
                             await gateway.clear_pending_state(db, conversation_id)
             except Exception as e:
-                logger.error(f"Stream task error: {e}")
+                logger.error(f"Stream task error: {e}", exc_info=True)
                 await websocket.send_json({"type": "error", "message": "Generation error."})
 
         # -------- Non-Blocking Chat Loop --------
