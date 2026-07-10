@@ -82,6 +82,7 @@ def _conv_to_out(conv: ChatConversation, message_count: int = 0) -> Conversation
         session_id=conv.session_id,
         customer_email=conv.customer_email,
         customer_name=conv.customer_name,
+        title=(conv.ai_context or {}).get("title") if isinstance(conv.ai_context, dict) else None,
         external_customer_id=conv.external_customer_id,
         is_active=conv.is_active,
         started_at=conv.started_at,

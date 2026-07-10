@@ -168,14 +168,31 @@ class AIGatewayService:
         intent_detected: Optional[str] = None,
         entities_extracted: Optional[dict] = None
     ) -> None:
+        normalized_sender = SenderType(sender_type.lower())
         msg = ChatMessage(
             chat_conversation_id=conversation_id,
-            sender_type=SenderType(sender_type.lower()),
+            sender_type=normalized_sender,
             message_text=text,
             intent_detected=intent_detected,
             entities_extracted=entities_extracted
         )
         db.add(msg)
+
+        # Conversation title is separate from customer_name.  For chat-created
+        # conversations, derive a stable title from the first customer message
+        # if no explicit title metadata exists yet.
+        if normalized_sender == SenderType.CUSTOMER and text.strip():
+            result = await db.execute(
+                select(ChatConversation).where(ChatConversation.id == conversation_id)
+            )
+            conv = result.scalar_one_or_none()
+            if conv is not None:
+                context = dict(conv.ai_context or {})
+                if not context.get("title"):
+                    title = text.strip().replace("\n", " ")[:80]
+                    context["title"] = title or "New Chat"
+                    conv.ai_context = context
+
         await db.commit()
 
     async def load_message_history(

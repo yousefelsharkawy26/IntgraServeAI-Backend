@@ -58,6 +58,7 @@ class ConversationOut(BaseModel):
     session_id: str
     customer_email: str
     customer_name: str
+    title: Optional[str] = None
     external_customer_id: Optional[str] = None
     is_active: bool
     started_at: datetime
