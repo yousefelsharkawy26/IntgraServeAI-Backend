@@ -487,26 +487,29 @@ class ActionEngine:
         if config.auth and "username" in config.auth and "password" in config.auth:
             request_auth = (config.auth["username"], config.auth["password"])
 
+        req_kwargs = {
+            "method": config.method,
+            "url": url,
+            "headers": request_headers,
+            "params": query_params,
+        }
+        if body_params:
+            req_kwargs["json"] = body_params
+
+        async def send_with_httpx(client: httpx.AsyncClient) -> Any:
+            resp = await client.request(**req_kwargs)
+            try:
+                response_data = resp.json()
+            except ValueError:
+                response_data = resp.text
+
+            # Raise HTTPStatusError for 4xx/5xx to be handled below
+            resp.raise_for_status()
+            return response_data
+
         try:
             async with httpx.AsyncClient(timeout=timeout_seconds, auth=request_auth) as client:
-                req_kwargs = {
-                    "method": config.method,
-                    "url": url,
-                    "headers": request_headers,
-                    "params": query_params,
-                }
-                if body_params:
-                    req_kwargs["json"] = body_params
-
-                resp = await client.request(**req_kwargs)
-                
-                try:
-                    data = resp.json()
-                except ValueError:
-                    data = resp.text
-
-                # Raise HTTPStatusError for 4xx/5xx to be handled below
-                resp.raise_for_status()
+                data = await send_with_httpx(client)
                 return self._parse_response(data, action.response_config)
 
         except httpx.HTTPStatusError as e:
@@ -516,10 +519,44 @@ class ActionEngine:
 
         except httpx.ConnectError as e:
             logger.warning(
-                "HTTPX connect failed for %s; retrying with urllib fallback. Error: %s",
+                "HTTPX connect failed for %s; retrying with IPv4-only transport. Error: %s",
                 url,
                 self._describe_request_error(e),
-                exc_info=True,
+            )
+
+            ipv4_error = None
+            try:
+                # Some networks break TLS over IPv6 for Cloudflare-backed APIs.
+                # Binding the local address to 0.0.0.0 forces an IPv4 connection
+                # while preserving normal hostname verification/SNI.
+                transport = httpx.AsyncHTTPTransport(local_address="0.0.0.0")
+                async with httpx.AsyncClient(
+                    timeout=timeout_seconds,
+                    auth=request_auth,
+                    transport=transport,
+                ) as client:
+                    data = await send_with_httpx(client)
+                    return self._parse_response(data, action.response_config)
+            except httpx.HTTPStatusError as status_error:
+                logger.error(
+                    "API returned %s during IPv4 retry: %s",
+                    status_error.response.status_code,
+                    status_error.response.text,
+                )
+                err_str = status_error.response.text
+                raise ExecutionException(
+                    self._format_action_error(
+                        action,
+                        f"HTTP {status_error.response.status_code}: {err_str}",
+                    )
+                ) from status_error
+            except Exception as retry_error:
+                ipv4_error = retry_error
+
+            logger.warning(
+                "HTTPX IPv4 retry failed for %s; retrying with urllib fallback. Error: %s",
+                url,
+                self._describe_request_error(ipv4_error),
             )
             try:
                 data = await asyncio.to_thread(
@@ -535,9 +572,10 @@ class ActionEngine:
             except Exception as fallback_error:
                 err_msg = (
                     f"httpx={self._describe_request_error(e)}; "
+                    f"httpx_ipv4={self._describe_request_error(ipv4_error)}; "
                     f"urllib_fallback={self._describe_request_error(fallback_error)}"
                 )
-                logger.error("API Request Failed after fallback: %s", err_msg, exc_info=True)
+                logger.error("API Request Failed after all fallbacks: %s", err_msg, exc_info=True)
                 raise ExecutionException(self._format_action_error(action, err_msg)) from fallback_error
 
         except httpx.RequestError as e:
