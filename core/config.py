@@ -41,6 +41,15 @@ class Settings(BaseSettings):
     # Encryption
     ENCRYPTION_KEY: Optional[str] = None  # Dedicated app-level encryption key (recommended)
 
+    # External API Keys (referenced in actions.json via {{env.XXX}})
+    GROQ_API_KEY: Optional[str] = None
+    SHOPEASY_API_KEY: Optional[str] = None
+    OLLAMA_API_KEY: Optional[str] = None
+    ADMIN_RPC_KEY: Optional[str] = None
+
+    # Vector DB (overrides default when set)
+    VECTOR_DB_CONNECTION_STRING: Optional[str] = None
+
     # JWT Settings
     SECRET_KEY: str
     ALGORITHM: str = "HS256"
