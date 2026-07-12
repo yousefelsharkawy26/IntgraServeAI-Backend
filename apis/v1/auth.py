@@ -60,7 +60,7 @@ async def login(
             value=refresh_token,
             httponly=True,
             secure=not settings.DEBUG,
-            samesite="lax",
+            samesite="none" if not settings.DEBUG else "lax",
             max_age=settings.REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60,
             path="/api/v1/auth"
         )
