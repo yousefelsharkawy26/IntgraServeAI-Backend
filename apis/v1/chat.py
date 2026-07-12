@@ -156,12 +156,7 @@ async def chat_websocket(websocket: WebSocket):
 
     # -------- Pre-accept JWT verification from query params --------
     staff_user: Optional[User] = None
-    query_token = websocket.query_params.get("token")
-    if query_token:
-        staff_user = await _verify_ws_staff_user(query_token)
-        if not staff_user:
-            await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
-            return
+    
 
     await websocket.accept()
 

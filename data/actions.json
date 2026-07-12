@@ -1,6 +1,6 @@
 {
   "version": "2.0",
-  "last_updated": null,
+  "last_updated": "2026-07-09T03:45:47.582769+00:00",
   "actions": {
     "ACT-001": {
       "name": "get_order_details",
@@ -80,108 +80,116 @@
     },
     "ACT-003": {
       "name": "search_products",
-      "description": "Performs a semantic search to find products in the catalog based on a natural language description.",
-      "type": "vector_query",
+      "description": "Searches the product catalog and returns matching products.",
+      "type": "api_request",
       "active": true,
       "requires_confirmation": false,
       "execution_config": {
-        "collection_name": "products_embeddings",
-        "max_results": 3
+        "protocol": "https",
+        "method": "GET",
+        "url": "https://dummyjson.com/products/search",
+        "timeout": 5000
       },
       "parameters": {
-        "topic": {
+        "q": {
           "type": "string",
           "required": true,
-          "param_type": "vector",
-          "description": "What the user is looking for (e.g., 'warm winter jacket')"
+          "param_type": "query",
+          "description": "The search query for products."
+        },
+        "limit": {
+          "type": "number",
+          "required": false,
+          "param_type": "query",
+          "description": "The maximum number of products to return."
         }
       },
       "response_config": {
         "mode": "raw",
-        "template": "Here are the top products I found:\n{{value}}",
-        "on_error": "I couldn't search the catalog right now."
+        "template": "Products returned by the catalog API:\n{{value}}",
+        "on_error": "Product catalog API failed: {{error}}"
       }
     },
     "INT-001": {
-        "name": "create_support_ticket",
-        "description": "Creates a support ticket to connect the customer with a support employee.",
-        "type": "internal",
-        "active": true,
-        "requires_confirmation": true,
-        "requires_human_input": true,
-        "parameters": {
-            "title": {
-                "type": "string",
-                "required": true,
-                "param_type": "internal",
-                "description": "The title of the ticket the user wants to create, leave empty if the user provided no info"
-            },
-            "description": {
-                "type": "string",
-                "required": true,
-                "param_type": "internal",
-                "description": "A description of the ticket the user wants to create, leave empty if the user provided no info"
-            }
+      "name": "create_support_ticket",
+      "description": "Creates a support ticket to connect the customer with a support employee.",
+      "type": "internal",
+      "active": true,
+      "requires_confirmation": true,
+      "requires_human_input": true,
+      "parameters": {
+        "title": {
+          "type": "string",
+          "required": true,
+          "param_type": "internal",
+          "description": "The title of the ticket the user wants to create, leave empty if the user provided no info"
+        },
+        "description": {
+          "type": "string",
+          "required": true,
+          "param_type": "internal",
+          "description": "A description of the ticket the user wants to create, leave empty if the user provided no info"
         }
+      }
     },
     "INT-002": {
-        "name": "create_technical_ticket",
-        "description": "Creates a technical ticket to report a bug, error or a failure in the system.",
-        "type": "internal",
-        "active": true,
-        "requires_confirmation": true,
-        "requires_human_input": true,
-        "parameters": {
-            "title": {
-                "type": "string",
-                "required": true,
-                "param_type": "internal",
-                "description": "The title of the ticket the user wants to create, leave empty if the user provided no info"
-            },
-            "description": {
-                "type": "string",
-                "required": true,
-                "param_type": "internal",
-                "description": "A description of the ticket the user wants to create, leave empty if the user provided no info"
-            }
+      "name": "create_technical_ticket",
+      "description": "Creates a technical ticket to report a bug, error or a failure in the system.",
+      "type": "internal",
+      "active": true,
+      "requires_confirmation": true,
+      "requires_human_input": true,
+      "parameters": {
+        "title": {
+          "type": "string",
+          "required": true,
+          "param_type": "internal",
+          "description": "The title of the ticket the user wants to create, leave empty if the user provided no info"
+        },
+        "description": {
+          "type": "string",
+          "required": true,
+          "param_type": "internal",
+          "description": "A description of the ticket the user wants to create, leave empty if the user provided no info"
         }
+      }
     },
     "INT-003": {
-        "name": "check_ticket_status",
-        "description": "Checks on the status for a specific reported ticket.",
-        "type": "internal",
-        "active": true,
-        "requires_confirmation": false,
-        "parameters": {
-            "ticket_id": {
-                "type": "string",
-                "required": true,
-                "param_type": "internal",
-                "description": "The ID of the ticket to check status for"
-            }
+      "name": "check_ticket_status",
+      "description": "Checks on the status for a specific reported ticket.",
+      "type": "internal",
+      "active": true,
+      "requires_confirmation": false,
+      "parameters": {
+        "ticket_id": {
+          "type": "string",
+          "required": true,
+          "param_type": "internal",
+          "description": "The ID of the ticket to check status for"
         }
+      }
     },
     "INT-004": {
-        "name": "search_tickets",
-        "description": "Searches reported tickets, used to avoid duplication.",
-        "type": "internal",
-        "active": true,
-        "requires_confirmation": false,
-        "parameters": {
-            "query": {
-                "type": "string",
-                "required": true,
-                "param_type": "internal",
-                "description": "The query to search reported tickets with"
-            }
+      "name": "search_tickets",
+      "description": "Searches reported tickets, used to avoid duplication.",
+      "type": "internal",
+      "active": true,
+      "requires_confirmation": false,
+      "parameters": {
+        "query": {
+          "type": "string",
+          "required": true,
+          "param_type": "internal",
+          "description": "The query to search reported tickets with"
         }
+      }
     },
     "INT-005": {
-        "name": "request_confirmation",
-        "description": "Requests confirmation from the user to execute an action.",
-        "type": "internal",
-        "active": true,
-        "requires_confirmation": false
+      "name": "request_confirmation",
+      "description": "Requests confirmation from the user to execute an action.",
+      "type": "internal",
+      "active": true,
+      "requires_confirmation": false
     }
   }
 }
