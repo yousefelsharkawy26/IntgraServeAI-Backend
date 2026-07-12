@@ -32,6 +32,7 @@ async def lifespan(app: FastAPI):
         from ai_engine.vector_search import validate_embedding_provider
         from services.ai_gateway_service import AIGatewayService
         
+        await AIGatewayService.reload_engine()
         engine = AIGatewayService.get_engine()
         
         # Deduplicate configurations by (provider, base_url, model_name)

@@ -169,7 +169,7 @@ class TestAgentConfigurationLoading:
 
 class TestActionDefinitionLoading:
     def test_minimal_actions(self, load_json):
-        data = load_json("valid/minimal_actions.json")
+        data = load_json("valid/minimal_registry.json")
         actions = [ActionDefinition(**item) for item in data]
         assert len(actions) == 2
         assert actions[0].name == "get_status"
@@ -252,18 +252,6 @@ class TestActionEngineInitialization:
         assert engine.actions == []
         assert engine.build_tools() == []
 
-    def test_actions_config_path_loading(self, write_temp_json):
-        agent_path = write_temp_json({
-            "system_context": {"title": "T", "description": "D", "version": "1", "tone": "neutral"},
-            "global_defaults": {}
-        }, "agent.json")
-        actions_path = write_temp_json([
-            {"name": "from_file", "description": "File", "type": "internal", "active": True}
-        ], "actions.json")
-        engine = ActionEngine(agent_path, actions_config_path=actions_path)
-        assert len(engine.actions) == 1
-        assert engine.actions[0].name == "from_file"
-
     def test_missing_agent_config_file(self, write_temp_json):
         with pytest.raises(Exception):
             ActionEngine("/nonexistent/agent_config.json", actions_list=[])
@@ -272,15 +260,6 @@ class TestActionEngineInitialization:
         bad_path = write_temp_json("not json", "bad_agent.json")
         with pytest.raises(Exception):
             ActionEngine(bad_path, actions_list=[])
-
-    def test_actions_config_not_list(self, write_temp_json):
-        agent_path = write_temp_json({
-            "system_context": {"title": "T", "description": "D", "version": "1", "tone": "neutral"},
-            "global_defaults": {}
-        }, "agent.json")
-        bad_path = write_temp_json({"not": "a list"}, "bad_actions.json")
-        with pytest.raises(InvalidActionStructure):
-            ActionEngine(agent_path, actions_config_path=bad_path)
 
     def test_actions_list_not_list(self, write_temp_json):
         agent_path = write_temp_json({

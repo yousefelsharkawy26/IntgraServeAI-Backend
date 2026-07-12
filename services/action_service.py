@@ -1,314 +1,28 @@
 # services/action_service.py
-import json
-import os
-import shutil
 import logging
-import re
-import copy
-import asyncio
-from datetime import datetime, timezone
-from typing import List, Optional, Dict, Any, Tuple
-from filelock import FileLock
+from typing import Any, Dict, List, Optional, Tuple
 
-from core.config import settings
+from models.action import Action
+from repositories.action_repository import ActionNameConflict, ActionRepository
 from utils.schemas.action_schemas import (
-    ActionCreate,
-    ActionUpdate,
-    ActionType,
-    ActionSummary,
-    ActionResponse,
-    ACTION_TYPE_CONFIG,
+    ACTION_TYPE_CONFIG, ActionCreate, ActionResponse, ActionSummary, ActionType, ActionUpdate,
 )
 from utils.exceptions import (
+    MissingFieldException, InvalidActionFieldException, UnsupportedActionTypeException,
+    InvalidParamTypeException, InvalidParamValueTypeException, InvalidResponseModeException,
+    BodyParamOnGetRequestException, RpcFieldInNonRpcActionException,
+    InternalActionNotAllowedException, DuplicateActionNameException, ActionNotFoundException,
     NotFoundException,
-    MissingFieldException,
-    InvalidActionStructureException,
-    InvalidActionFieldException,
-    UnsupportedActionTypeException,
-    InvalidParamTypeException,
-    InvalidParamValueTypeException,
-    InvalidResponseModeException,
-    BodyParamOnGetRequestException,
-    RpcFieldInNonRpcActionException,
-    InternalActionNotAllowedException,
-    DuplicateActionNameException,
-    ActionNotFoundException,
 )
 
 logger = logging.getLogger(__name__)
 
 
-# ============================================================================
-# Default Internal Actions
-# ============================================================================
-
-DEFAULT_INTERNAL_ACTIONS = {
-    "INT-001": {
-        "name": "create_support_ticket",
-        "description": "Creates a support ticket to connect the customer with a support employee.",
-        "type": "internal",
-        "active": True,
-        "requires_confirmation": True,
-    },
-    "INT-002": {
-        "name": "create_technical_ticket",
-        "description": "Creates a technical ticket to report a bug, error or a failure in the system.",
-        "type": "internal",
-        "active": True,
-        "requires_confirmation": True,
-    },
-    "INT-003": {
-        "name": "check_ticket_status",
-        "description": "Checks on the status for a specific reported ticket.",
-        "type": "internal",
-        "active": True,
-        "requires_confirmation": False,
-        "parameters": {
-            "ticket_id": {
-                "type": "string",
-                "required": True,
-                "param_type": "internal",
-                "description": "The ID of the ticket to check status for"
-            }
-        }
-    },
-    "INT-004": {
-        "name": "search_tickets",
-        "description": "Searches reported tickets, used to avoid duplication.",
-        "type": "internal",
-        "active": True,
-        "requires_confirmation": False,
-        "parameters": {
-            "query": {
-                "type": "string",
-                "required": True,
-                "param_type": "internal",
-                "description": "The query to search reported tickets with"
-            }
-        }
-    },
-    "INT-005": {
-        "name": "request_confirmation",
-        "description": "Requests confirmation from the user to execute an action.",
-        "type": "internal",
-        "active": True,
-        "requires_confirmation": False,
-    },
-}
-
-
 class ActionService:
-    """Service for managing actions stored in JSON file"""
+    """Action business rules. Persistence is delegated to ActionRepository."""
 
-    def __init__(self):
-        self.file_path = settings.ACTIONS_FILE_FULL_PATH
-        self.backup_dir = settings.ACTIONS_BACKUP_DIR
-        self.backup_enabled = settings.ACTIONS_BACKUP_ENABLED
-        self.backup_count = settings.ACTIONS_BACKUP_COUNT
-        self.lock_path = self.file_path.with_suffix('.lock')
-        self._cache: Optional[Dict[str, Any]] = None
-
-        # Ensure data directory exists
-        self._ensure_directories()
-
-    # =========================================================================
-    # File Operations
-    # =========================================================================
-
-    def _ensure_directories(self) -> None:
-        """Ensure data and backup directories exist"""
-        self.file_path.parent.mkdir(parents=True, exist_ok=True)
-        if self.backup_enabled:
-            self.backup_dir.mkdir(parents=True, exist_ok=True)
-
-        # Create file if not exists with default internal actions
-        if not self.file_path.exists():
-            self._save_data({
-                "version": "2.0",
-                "last_updated": None,
-                "actions": DEFAULT_INTERNAL_ACTIONS.copy()
-            })
-            logger.info(f"Created new actions file with default internal actions: {self.file_path}")
-
-    def _normalize_data(self, raw_data: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Normalize raw JSON data into the expected nested format.
-        Handles both:
-        - Nested format: {"version": "...", "last_updated": "...", "actions": {...}}
-        - Flat format:   {"ACT-001": {...}, "ACT-002": {...}}
-        """
-        if raw_data is None:
-            raw_data = {}
-
-        # If data already has an "actions" key at top level, it's nested format
-        if "actions" in raw_data and isinstance(raw_data["actions"], dict):
-            return raw_data
-
-        # Otherwise, treat all keys that look like action IDs as actions (flat format)
-        # Action IDs typically start with "ACT-" or "INT-" and contain action-like fields
-        actions = {}
-        metadata = {}
-
-        for key, value in raw_data.items():
-            if isinstance(value, dict) and (key.startswith(("ACT-", "INT-")) or "name" in value or "type" in value):
-                actions[key] = value
-            else:
-                metadata[key] = value
-
-        return {
-            "version": metadata.get("version", "2.0"),
-            "last_updated": metadata.get("last_updated"),
-            "actions": actions
-        }
-
-    def _load_data(self) -> Dict[str, Any]:
-        """Load actions data from JSON file (or in-memory cache)"""
-        if self._cache is not None:
-            # Ensure internal actions exist in cache
-            actions = self._cache.get("actions", {})
-            for int_id, int_action in DEFAULT_INTERNAL_ACTIONS.items():
-                if int_id not in actions:
-                    actions[int_id] = int_action.copy()
-            self._cache["actions"] = actions
-            return copy.deepcopy(self._cache)
-
-        try:
-            with FileLock(self.lock_path):
-                with open(self.file_path, 'r', encoding='utf-8') as f:
-                    raw_data = json.load(f)
-
-                # Normalize flat format to nested format
-                data = self._normalize_data(raw_data)
-
-                # Ensure internal actions exist
-                actions = data.get("actions", {})
-                for int_id, int_action in DEFAULT_INTERNAL_ACTIONS.items():
-                    if int_id not in actions:
-                        actions[int_id] = int_action.copy()
-                data["actions"] = actions
-
-                self._cache = data
-                return copy.deepcopy(self._cache)
-        except json.JSONDecodeError as e:
-            logger.error(f"Invalid JSON in actions file: {e}")
-            raise InvalidActionStructureException(f"Actions file contains invalid JSON: {e}")
-        except FileNotFoundError:
-            logger.warning("Actions file not found, creating new one")
-            self._ensure_directories()
-            if self._cache is not None:
-                return copy.deepcopy(self._cache)
-            return self._load_data()
-        except Exception as e:
-            logger.error(f"Error loading actions file: {e}")
-            raise
-
-    def _save_data(self, data: Dict[str, Any]) -> None:
-        """Save actions data to JSON file and update in-memory cache"""
-        try:
-            # Create backup before saving
-            if self.backup_enabled and self.file_path.exists():
-                self._create_backup()
-
-            # Update timestamp
-            data["last_updated"] = datetime.now(timezone.utc).isoformat()
-
-            with FileLock(self.lock_path):
-                with open(self.file_path, 'w', encoding='utf-8') as f:
-                    json.dump(data, f, indent=2, ensure_ascii=False)
-                self._cache = copy.deepcopy(data)
-
-            logger.info("Actions file saved successfully")
-        except Exception as e:
-            logger.error(f"Error saving actions file: {e}")
-            raise
-
-    def _create_backup(self) -> None:
-        """Create backup of current actions file"""
-        try:
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            backup_name = f"actions_backup_{timestamp}.json"
-            backup_path = self.backup_dir / backup_name
-
-            shutil.copy2(self.file_path, backup_path)
-            logger.info(f"Backup created: {backup_path}")
-
-            # Clean old backups
-            self._cleanup_old_backups()
-        except Exception as e:
-            logger.warning(f"Failed to create backup: {e}")
-
-    def _cleanup_old_backups(self) -> None:
-        """Remove old backup files, keeping only the most recent ones"""
-        try:
-            backups = sorted(
-                self.backup_dir.glob("actions_backup_*.json"),
-                key=lambda x: x.stat().st_mtime,
-                reverse=True
-            )
-
-            for old_backup in backups[self.backup_count:]:
-                old_backup.unlink()
-                logger.info(f"Removed old backup: {old_backup}")
-        except Exception as e:
-            logger.warning(f"Failed to cleanup backups: {e}")
-
-    def _resolve_backup_path(self, filename: str) -> None:
-        """
-        Validate that *filename* does not contain path traversal and that the
-        resolved absolute path is still inside the backup directory.
-        Raises NotFoundException if validation fails.
-        """
-        if ".." in filename or os.path.isabs(filename):
-            raise NotFoundException(f"Invalid backup filename: {filename}")
-
-        backup_path = self.backup_dir / filename
-        abs_backup = backup_path.resolve()
-        abs_backup_dir = self.backup_dir.resolve()
-
-        if os.path.commonpath([abs_backup, abs_backup_dir]) != str(abs_backup_dir):
-            raise NotFoundException(f"Invalid backup filename: {filename}")
-
-        # Also enforce naming convention
-        if not filename.startswith("actions_backup_") or not filename.endswith(".json"):
-            raise NotFoundException(f"Invalid backup filename: {filename}")
-
-    # =========================================================================
-    # ID Generation
-    # =========================================================================
-
-    def _generate_next_id(self, action_type: ActionType) -> str:
-        """Generate next available ID for action type"""
-        data = self._load_data()
-        actions = data.get("actions", {})
-
-        # Determine prefix based on type
-        if action_type == ActionType.INTERNAL:
-            prefix = "INT"
-        else:
-            prefix = "ACT"
-
-        # Find max number for this prefix
-        max_num = 0
-        pattern = re.compile(rf'^{prefix}-(\d+)$')
-
-        for action_id in actions.keys():
-            match = pattern.match(action_id)
-            if match:
-                num = int(match.group(1))
-                if num > max_num:
-                    max_num = num
-
-        # Generate next ID
-        next_num = max_num + 1
-        return f"{prefix}-{next_num:03d}"
-
-    def _is_internal_action(self, action_id: str) -> bool:
-        """Check if action ID is for internal action"""
-        return action_id.startswith("INT-")
-
-    # =========================================================================
-    # Validation Methods
-    # =========================================================================
+    def __init__(self, repository: ActionRepository):
+        self.repository = repository
 
     def validate_action(
         self, 
@@ -502,396 +216,128 @@ class ActionService:
             if value_config["type"] not in ["string", "integer"]:
                 raise InvalidParamValueTypeException(value_config["type"], value_key)
 
-    # =========================================================================
-    # CRUD Operations
-    # =========================================================================
-
     async def get_all_actions(
-        self,
-        action_type: Optional[str] = None,
-        active: Optional[bool] = None,
-        search: Optional[str] = None
+        self, action_type: Optional[str] = None, active: Optional[bool] = None,
+        search: Optional[str] = None,
     ) -> Tuple[List[ActionSummary], int]:
-        """Get all actions with optional filters"""
-        data = self._load_data()
-        actions = data.get("actions", {})
-
-        filtered_actions = []
-        for action_id, action in actions.items():
-            # Filter by type
-            if action_type and action.get("type") != action_type:
-                continue
-            # Filter by active status
-            if active is not None and action.get("active") != active:
-                continue
-            # Filter by search
-            if search:
-                search_lower = search.lower()
-                name_match = search_lower in action.get("name", "").lower()
-                desc_match = search_lower in action.get("description", "").lower()
-                if not (name_match or desc_match):
-                    continue
-
-            filtered_actions.append(ActionSummary(
-                id=action_id,
-                name=action["name"],
-                description=action["description"],
-                type=action["type"],
-                active=action.get("active", True),
-                requires_confirmation=action.get("requires_confirmation", False)
-            ))
-
-        # Sort: internal actions last, then by ID
-        filtered_actions.sort(key=lambda x: (x.type == ActionType.INTERNAL, x.id))
-
-        return filtered_actions, len(filtered_actions)
+        rows = await self.repository.list(action_type, active, search)
+        summaries = [
+            ActionSummary(
+                id=row.id, name=row.name, description=row.description, type=row.type,
+                active=row.active, requires_confirmation=row.requires_confirmation,
+            )
+            for row in rows
+        ]
+        summaries.sort(key=lambda item: (item.type == ActionType.INTERNAL, item.id))
+        return summaries, len(summaries)
 
     async def get_action_by_id(self, action_id: str) -> ActionResponse:
-        """Get action by ID"""
-        data = self._load_data()
-        actions = data.get("actions", {})
-
-        if action_id not in actions:
+        action = await self.repository.get_by_id(action_id)
+        if action is None:
             raise ActionNotFoundException(action_id)
-
-        action = actions[action_id]
-        return ActionResponse(
-            id=action_id,
-            name=action["name"],
-            description=action["description"],
-            type=action["type"],
-            active=action.get("active", True),
-            requires_confirmation=action.get("requires_confirmation", False),
-            execution_config=action.get("execution_config"),
-            parameters=action.get("parameters"),
-            response_config=action.get("response_config")
-        )
+        return self._response(action)
 
     async def get_action_by_name(self, name: str) -> ActionResponse:
-        """Get action by name"""
-        data = self._load_data()
-        actions = data.get("actions", {})
-
-        for action_id, action in actions.items():
-            if action["name"] == name:
-                return ActionResponse(
-                    id=action_id,
-                    name=action["name"],
-                    description=action["description"],
-                    type=action["type"],
-                    active=action.get("active", True),
-                    requires_confirmation=action.get("requires_confirmation", False),
-                    execution_config=action.get("execution_config"),
-                    parameters=action.get("parameters"),
-                    response_config=action.get("response_config")
-                )
-
-        raise NotFoundException(f"Action '{name}' not found")
+        action = await self.repository.get_by_name(name)
+        if action is None:
+            raise NotFoundException(f"Action '{name}' not found")
+        return self._response(action)
 
     async def create_action(self, action_data: ActionCreate) -> Tuple[str, str]:
-        """Create a new action. Returns (id, name)"""
-        data = self._load_data()
-        actions = data.get("actions", {})
-
-        # Check if internal type (not allowed)
         if action_data.type == ActionType.INTERNAL:
             raise InternalActionNotAllowedException("create")
+        if await self.repository.get_by_name(action_data.name):
+            raise DuplicateActionNameException(action_data.name)
 
-        # Check for duplicate name
-        for existing_action in actions.values():
-            if existing_action["name"] == action_data.name:
-                raise DuplicateActionNameException(action_data.name)
-
-        # Validate action
-        action_dict = action_data.model_dump(mode="json", exclude_none=True)
-        is_valid, warnings = self.validate_action(action_dict)
-
-        # Generate ID
-        action_id = self._generate_next_id(action_data.type)
-
-        # Add action
-        actions[action_id] = action_dict
-        data["actions"] = actions
-        self._save_data(data)
-
-        logger.info(f"Action created: {action_id} - {action_data.name}")
+        values = action_data.model_dump(mode="json", exclude_none=True)
+        _, warnings = self.validate_action(values)
+        action = Action(**values)
+        try:
+            await self.repository.create(action)
+        except ActionNameConflict:
+            raise DuplicateActionNameException(action_data.name)
+        await self._refresh_cached_engine()
+        logger.info("Action created: %s - %s", action.id, action.name)
         if warnings:
-            logger.warning(f"Action '{action_data.name}' created with warnings: {warnings}")
-
-        return action_id, action_data.name
+            logger.warning("Action '%s' created with warnings: %s", action.name, warnings)
+        return action.id, action.name
 
     async def update_action(self, action_id: str, update_data: ActionUpdate) -> Tuple[str, str]:
-        """Update an existing action. Returns (id, name)"""
-        data = self._load_data()
-        actions = data.get("actions", {})
-
-        # Check if action exists
-        if action_id not in actions:
+        action = await self.repository.get_by_id(action_id)
+        if action is None:
             raise ActionNotFoundException(action_id)
-
-        existing_action = actions[action_id]
-
-        # Check if internal action (read-only, except toggle)
-        if existing_action.get("type") == "internal":
+        if action.type == "internal":
             raise InternalActionNotAllowedException("update")
 
-        # Check for duplicate name if name is being changed
-        if update_data.name and update_data.name != existing_action["name"]:
-            for aid, action in actions.items():
-                if aid != action_id and action["name"] == update_data.name:
-                    raise DuplicateActionNameException(update_data.name)
+        if update_data.name and update_data.name != action.name:
+            duplicate = await self.repository.get_by_name(update_data.name)
+            if duplicate is not None and duplicate.id != action_id:
+                raise DuplicateActionNameException(update_data.name)
 
-        # Merge update data
-        update_dict = update_data.model_dump(mode="json", exclude_none=True)
-        merged_action = {**existing_action, **update_dict}
-
-        # Handle nested updates for execution_config
-        if update_data.execution_config:
-            existing_exec = existing_action.get("execution_config", {})
-            update_exec = update_dict.get("execution_config", {})
-            merged_action["execution_config"] = {**existing_exec, **update_exec}
-
-        # Validate merged action
-        is_valid, warnings = self.validate_action(merged_action, is_update=True)
-
-        # Update action
-        actions[action_id] = merged_action
-        data["actions"] = actions
-        self._save_data(data)
-
-        logger.info(f"Action updated: {action_id}")
-        return action_id, merged_action["name"]
+        update_values = update_data.model_dump(mode="json", exclude_none=True)
+        current = action.to_dict(include_id=False)
+        merged = {**current, **update_values}
+        if update_data.execution_config is not None:
+            merged["execution_config"] = {
+                **(current.get("execution_config") or {}),
+                **update_values.get("execution_config", {}),
+            }
+            update_values["execution_config"] = merged["execution_config"]
+        self.validate_action(merged, is_update=True)
+        await self.repository.update(action, update_values)
+        await self._refresh_cached_engine()
+        logger.info("Action updated: %s", action_id)
+        return action.id, action.name
 
     async def delete_action(self, action_id: str) -> Tuple[str, str]:
-        """Delete an action. Returns (id, name)"""
-        data = self._load_data()
-        actions = data.get("actions", {})
-
-        # Check if action exists
-        if action_id not in actions:
+        action = await self.repository.get_by_id(action_id)
+        if action is None:
             raise ActionNotFoundException(action_id)
-
-        action = actions[action_id]
-
-        # Check if internal action (cannot delete)
-        if action.get("type") == "internal":
+        if action.type == "internal":
             raise InternalActionNotAllowedException("delete")
-
-        # Delete action
-        action_name = action["name"]
-        del actions[action_id]
-        data["actions"] = actions
-        self._save_data(data)
-
-        logger.info(f"Action deleted: {action_id} - {action_name}")
-        return action_id, action_name
+        name = action.name
+        await self.repository.delete(action)
+        await self._refresh_cached_engine()
+        logger.info("Action deleted: %s - %s", action_id, name)
+        return action_id, name
 
     async def toggle_action_status(self, action_id: str) -> Tuple[str, str, bool]:
-        """Toggle action active status. Returns (id, name, new_status)"""
-        data = self._load_data()
-        actions = data.get("actions", {})
-
-        # Check if action exists
-        if action_id not in actions:
+        action = await self.repository.get_by_id(action_id)
+        if action is None:
             raise ActionNotFoundException(action_id)
-
-        action = actions[action_id]
-
-        # Toggle status (allowed for all actions including internal)
-        action["active"] = not action.get("active", True)
-        new_status = action["active"]
-
-        data["actions"] = actions
-        self._save_data(data)
-
-        logger.info(f"Action '{action_id}' status toggled to: {new_status}")
-        return action_id, action["name"], new_status
+        await self.repository.update(action, {"active": not action.active})
+        await self._refresh_cached_engine()
+        return action.id, action.name, action.active
 
     async def validate_action_only(
-        self, 
-        action_data: Dict[str, Any]
+        self, action_data: Dict[str, Any],
     ) -> Tuple[bool, str, List[str]]:
-        """Validate action without saving. Returns (is_valid, message, warnings)"""
-        if "name" not in action_data:
-            raise MissingFieldException("name")
-        if "description" not in action_data:
-            raise MissingFieldException("description")
-        if "type" not in action_data:
-            raise MissingFieldException("type")
-
-        # Check internal type
+        for field in ("name", "description", "type"):
+            if field not in action_data:
+                raise MissingFieldException(field)
         if action_data.get("type") == "internal":
             raise InternalActionNotAllowedException("create")
-
-        is_valid, warnings = self.validate_action(action_data)
+        _, warnings = self.validate_action(action_data)
         return True, "Action structure is valid", warnings
 
-    # =========================================================================
-    # Backup Operations
-    # =========================================================================
+    async def _refresh_cached_engine(self) -> None:
+        # Keep a previously initialized engine coherent without making CRUD
+        # depend on engine initialization or a second database transaction.
+        from services.ai_gateway_service import AIGatewayService
 
-    async def get_all_backups(self) -> List[Dict[str, Any]]:
-        """Get list of all backup files"""
-        backups = []
+        if AIGatewayService.has_cached_engine():
+            rows = await self.repository.list()
+            AIGatewayService.configure_engine([
+                row.to_dict(include_id=False, include_engine_fields=True)
+                | {"_backend_id": row.id}
+                for row in rows
+            ])
 
-        if not self.backup_dir.exists():
-            return backups
-
-        backup_files = sorted(
-            self.backup_dir.glob("actions_backup_*.json"),
-            key=lambda x: x.stat().st_mtime,
-            reverse=True
+    @staticmethod
+    def _response(action: Action) -> ActionResponse:
+        return ActionResponse(
+            id=action.id, name=action.name, description=action.description, type=action.type,
+            active=action.active, requires_confirmation=action.requires_confirmation,
+            execution_config=action.execution_config, parameters=action.parameters,
+            response_config=action.response_config,
         )
-
-        for backup_file in backup_files:
-            stat = backup_file.stat()
-            filename = backup_file.name
-
-            try:
-                timestamp_str = filename.replace("actions_backup_", "").replace(".json", "")
-                created_at = datetime.strptime(timestamp_str, "%Y%m%d_%H%M%S")
-                created_at = created_at.replace(tzinfo=timezone.utc)
-            except ValueError:
-                created_at = datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc)
-
-            backups.append({
-                "filename": filename,
-                "created_at": created_at.isoformat(),
-                "size_bytes": stat.st_size,
-                "size_kb": round(stat.st_size / 1024, 2)
-            })
-
-        return backups
-
-    async def get_backup_content(self, filename: str) -> Dict[str, Any]:
-        """Get content of a specific backup file"""
-        self._resolve_backup_path(filename)
-        backup_path = self.backup_dir / filename
-
-        if not backup_path.exists():
-            raise NotFoundException(f"Backup '{filename}' not found")
-
-        try:
-            with open(backup_path, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-                actions = data.get("actions", {})
-                return {
-                    "filename": filename,
-                    "content": data,
-                    "actions_count": len(actions)
-                }
-        except json.JSONDecodeError as e:
-            logger.error(f"Invalid JSON in backup file {filename}: {e}")
-            raise InvalidActionStructureException(f"Backup file contains invalid JSON: {e}")
-
-    async def restore_backup(self, filename: str) -> Dict[str, Any]:
-        """Restore actions from a backup file"""
-        self._resolve_backup_path(filename)
-        backup_path = self.backup_dir / filename
-
-        if not backup_path.exists():
-            raise NotFoundException(f"Backup '{filename}' not found")
-
-        try:
-            with open(backup_path, 'r', encoding='utf-8') as f:
-                backup_data = json.load(f)
-
-            if "actions" not in backup_data:
-                raise InvalidActionStructureException("Backup file missing 'actions' field")
-
-            # Create backup of current state
-            if self.file_path.exists():
-                self._create_backup()
-
-            # Ensure internal actions exist in restored data
-            actions = backup_data.get("actions", {})
-            for int_id, int_action in DEFAULT_INTERNAL_ACTIONS.items():
-                if int_id not in actions:
-                    actions[int_id] = int_action.copy()
-            backup_data["actions"] = actions
-
-            # Update metadata
-            backup_data["last_updated"] = datetime.now(timezone.utc).isoformat()
-            backup_data["restored_from"] = filename
-            backup_data["restored_at"] = datetime.now(timezone.utc).isoformat()
-
-            with FileLock(self.lock_path):
-                with open(self.file_path, 'w', encoding='utf-8') as f:
-                    json.dump(backup_data, f, indent=2, ensure_ascii=False)
-                self._cache = copy.deepcopy(backup_data)
-
-            actions_count = len(backup_data.get("actions", {}))
-            logger.info(f"Backup restored: {filename} ({actions_count} actions)")
-
-            return {
-                "message": "Backup restored successfully",
-                "restored_from": filename,
-                "actions_count": actions_count
-            }
-
-        except json.JSONDecodeError as e:
-            logger.error(f"Invalid JSON in backup file {filename}: {e}")
-            raise InvalidActionStructureException(f"Backup file contains invalid JSON: {e}")
-
-    async def delete_backup(self, filename: str) -> Dict[str, str]:
-        """Delete a specific backup file"""
-        self._resolve_backup_path(filename)
-        backup_path = self.backup_dir / filename
-
-        if not backup_path.exists():
-            raise NotFoundException(f"Backup '{filename}' not found")
-
-        try:
-            backup_path.unlink()
-            logger.info(f"Backup deleted: {filename}")
-            return {"message": "Backup deleted successfully", "filename": filename}
-        except Exception as e:
-            logger.error(f"Failed to delete backup {filename}: {e}")
-            raise
-
-    async def delete_all_backups(self) -> Dict[str, Any]:
-        """Delete all backup files"""
-        if not self.backup_dir.exists():
-            return {"message": "No backups to delete", "deleted_count": 0}
-
-        backup_files = list(self.backup_dir.glob("actions_backup_*.json"))
-        deleted_count = 0
-
-        for backup_file in backup_files:
-            try:
-                backup_file.unlink()
-                deleted_count += 1
-            except Exception as e:
-                logger.warning(f"Failed to delete backup {backup_file.name}: {e}")
-
-        logger.info(f"Deleted {deleted_count} backup files")
-        return {"message": f"Deleted {deleted_count} backup(s)", "deleted_count": deleted_count}
-
-    async def compare_with_backup(self, filename: str) -> Dict[str, Any]:
-        """Compare current actions with a backup"""
-        backup_data = await self.get_backup_content(filename)
-        backup_actions = backup_data["content"].get("actions", {})
-
-        current_data = self._load_data()
-        current_actions = current_data.get("actions", {})
-
-        backup_ids = set(backup_actions.keys())
-        current_ids = set(current_actions.keys())
-
-        added = list(current_ids - backup_ids)
-        removed = list(backup_ids - current_ids)
-
-        modified = []
-        for action_id in backup_ids & current_ids:
-            if backup_actions[action_id] != current_actions[action_id]:
-                modified.append(action_id)
-
-        return {
-            "filename": filename,
-            "backup_actions_count": len(backup_actions),
-            "current_actions_count": len(current_actions),
-            "added": added,
-            "removed": removed,
-            "modified": modified,
-            "has_changes": bool(added or removed or modified)
-        }

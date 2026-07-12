@@ -6,6 +6,7 @@ from models.chat import ChatConversation, ChatMessage, AgentRating, ResponseType
 from models.system import SystemType, ActionProtocol, SystemAction, ActionExecutionLog
 from models.auth import ApiAuthType, ApiAuthentication
 from models.audit import AuditLog
+from models.action import Action
 
 __all__ = [
     # Base
@@ -42,4 +43,5 @@ __all__ = [
     
     # Audit
     'AuditLog',
+    'Action',
 ]

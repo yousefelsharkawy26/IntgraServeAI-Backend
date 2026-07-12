@@ -19,9 +19,8 @@ import ipaddress
 from urllib.parse import urlparse, urlencode
 from urllib import request as urllib_request
 from urllib.error import HTTPError as UrllibHTTPError, URLError
-from filelock import FileLock
 
-from .config import AgentConfiguration, ActionDefinition, ResponseConfig, EmbeddingConfig, ActionsConfiguration
+from .config import AgentConfiguration, ActionDefinition, ResponseConfig, EmbeddingConfig
 from .vector_search import generate_embedding, get_vector_driver
 from core.config import BASE_DIR
 from utils.exceptions import (
@@ -37,18 +36,11 @@ logger = CorrelationIdAdapter(logging.getLogger(__name__))
 class ActionEngine:
     ALLOWED_PROTO_DIR: str = os.path.abspath(BASE_DIR / "protos")
 
-    def __init__(self, agent_config_path: str, actions_config_path: str = None, actions_list: list = None):
-        if actions_config_path is None and actions_list is None:
-            raise ValueError("Either actions_config_path or actions_list must be provided")
-
+    def __init__(self, agent_config_path: str, actions_list: list):
         self.agent_config: AgentConfiguration = self._load_agent_config(agent_config_path)
-        
-        if actions_list is not None:
-            if not isinstance(actions_list, list):
-                raise InvalidActionStructure("Actions list must be a list of objects")
-            self.actions: List[ActionDefinition] = self._parse_actions_list(actions_list)
-        else:
-            self.actions: List[ActionDefinition] = self._load_actions_config(actions_config_path)
+        if not isinstance(actions_list, list):
+            raise InvalidActionStructure("Actions list must be a list of objects")
+        self.actions: List[ActionDefinition] = self._parse_actions_list(actions_list)
 
         seen_names = set()
         for action in self.actions:
@@ -129,33 +121,6 @@ class ActionEngine:
         except Exception as e:
             raise ParsingException(f"Unexpected error loading agent config: {e}")
 
-    def _load_actions_config(self, path: str) -> List[ActionDefinition]:
-        try:
-            with open(path, "r") as f:
-                data = json.load(f)
-
-            # Support backward-compatible JSON array format
-            if isinstance(data, list):
-                return self._parse_actions_list(data)
-
-            # The root must be a dictionary (JSON object) with required keys
-            if not isinstance(data, dict) or "actions" not in data or "version" not in data:
-                raise InvalidActionStructure("Actions config must be a JSON object")
-
-            config = ActionsConfiguration(**data)
-            return list(config.actions.values())
-
-        except FileNotFoundError:
-            raise ParsingException(f"Actions config file not found at {path}")
-        except json.JSONDecodeError as e:
-            raise ParsingException(f"Invalid JSON in actions config: {e}")
-        except ValidationError as e:
-            self._handle_validation_error(e, "Actions Config Validation Failed")
-        except ActionEngineException as e:
-            raise e
-        except Exception as e:
-            raise ParsingException(f"Failed to load actions config: {e}")
-        
     def _parse_actions_list(self, actions_list: List[Dict]) -> List[ActionDefinition]:
         actions = []
         for index, item in enumerate(actions_list):
@@ -201,7 +166,7 @@ class ActionEngine:
         proto_dir = os.path.dirname(abs_proto_path)
         proto_file = os.path.basename(abs_proto_path)
         
-        cache_key = hashlib.md5(abs_proto_path.encode()).hexdigest()
+        cache_key = hashlib.md5(f"{abs_proto_path}:{os.getpid()}".encode()).hexdigest()
         out_dir = os.path.join(tempfile.gettempdir(), "ai_engine_proto_cache", cache_key)
         os.makedirs(out_dir, exist_ok=True)
         
@@ -209,20 +174,16 @@ class ActionEngine:
         pb2_grpc_name = proto_file.replace('.proto', '_pb2_grpc')
         pb2_path = os.path.join(out_dir, f"{pb2_name}.py")
         
-        # Thread/Process-safe lock to prevent Uvicorn workers from corrupting the file
-        lock_path = os.path.join(out_dir, ".compile.lock")
-        
-        with FileLock(lock_path):
-            if not os.path.exists(pb2_path):
-                protoc_args = [
-                    'grpc_tools.protoc',
-                    f'-I{proto_dir}',
-                    f'--python_out={out_dir}',
-                    f'--grpc_python_out={out_dir}',
-                    abs_proto_path
-                ]
-                if protoc.main(protoc_args) != 0:
-                    raise ExecutionException(f"Failed to compile proto file: {proto_file}")
+        if not os.path.exists(pb2_path):
+            protoc_args = [
+                'grpc_tools.protoc',
+                f'-I{proto_dir}',
+                f'--python_out={out_dir}',
+                f'--grpc_python_out={out_dir}',
+                abs_proto_path
+            ]
+            if protoc.main(protoc_args) != 0:
+                raise ExecutionException(f"Failed to compile proto file: {proto_file}")
 
         sys.path.insert(0, out_dir)
         try:

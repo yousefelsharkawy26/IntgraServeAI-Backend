@@ -335,61 +335,6 @@ class ActionTypesResponse(BaseModel):
 
 
 # ============================================================================
-# Backup Schemas
-# ============================================================================
-
-class BackupInfo(BaseModel):
-    """Information about a backup file"""
-    filename: str
-    created_at: str
-    size_bytes: int
-    size_kb: float
-
-
-class BackupListResponse(BaseModel):
-    """Response for listing backups"""
-    total: int
-    backups: List[BackupInfo]
-
-
-class BackupContentResponse(BaseModel):
-    """Response for backup content"""
-    filename: str
-    content: Dict[str, Any]
-    actions_count: int
-
-
-class BackupRestoreResponse(BaseModel):
-    """Response after restoring a backup"""
-    message: str
-    restored_from: str
-    actions_count: int
-
-
-class BackupDeleteResponse(BaseModel):
-    """Response after deleting a backup"""
-    message: str
-    filename: str
-
-
-class BackupDeleteAllResponse(BaseModel):
-    """Response after deleting all backups"""
-    message: str
-    deleted_count: int
-
-
-class BackupCompareResponse(BaseModel):
-    """Response for comparing current state with backup"""
-    filename: str
-    backup_actions_count: int
-    current_actions_count: int
-    added: List[str]
-    removed: List[str]
-    modified: List[str]
-    has_changes: bool
-
-
-# ============================================================================
 # Helper function to get action type descriptions
 # ============================================================================
 

@@ -41,7 +41,7 @@ class Settings(BaseSettings):
     # Encryption
     ENCRYPTION_KEY: Optional[str] = None  # Dedicated app-level encryption key (recommended)
 
-    # External API Keys (referenced in actions.json via {{env.XXX}})
+    # External API Keys (referenced in action configs via {{env.XXX}})
     GROQ_API_KEY: Optional[str] = None
     SHOPEASY_API_KEY: Optional[str] = None
     OLLAMA_API_KEY: Optional[str] = None
@@ -69,31 +69,10 @@ class Settings(BaseSettings):
     
     # CORS
     CORS_ORIGINS: List[str] = ["http://localhost:3000", "http://localhost:8000"]
-    
-    # Actions Configuration
-    ACTIONS_FILE_PATH: str = "data/actions.json"
-    ACTIONS_BACKUP_ENABLED: bool = True
-    ACTIONS_BACKUP_COUNT: int = 5
 
     # AI Gateway
     AI_GATEWAY_ENABLED: bool = True
     CHAT_SESSION_TIMEOUT_MINUTES: int = 30
-    
-    @property
-    def ACTIONS_FILE_FULL_PATH(self) -> Path:
-        """Get full path to actions file, anchored to project root if relative"""
-        path = Path(self.ACTIONS_FILE_PATH)
-        if not path.is_absolute():
-            path = BASE_DIR / path
-        return path
-    
-    @property
-    def ACTIONS_BACKUP_DIR(self) -> Path:
-        """Get backup directory path, anchored to project root if relative"""
-        path = Path(self.ACTIONS_FILE_PATH)
-        if not path.is_absolute():
-            path = BASE_DIR / path
-        return path.parent / "backups"
 
     AGENT_CONFIG_FILE_PATH: str = "data/agent_config.json"
     AGENT_CONFIG_BACKUP_ENABLED: bool = True

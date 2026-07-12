@@ -7,7 +7,7 @@ import copy
 from datetime import datetime, timezone
 from typing import Dict, Any, List, Optional, Tuple
 from uuid import UUID
-from filelock import FileLock
+from threading import RLock
 from pydantic import ValidationError
 
 from core.config import settings
@@ -16,6 +16,7 @@ from utils.schemas import agent_config_schemas as schemas
 from services.ai_gateway_service import AIGatewayService
 
 logger = logging.getLogger(__name__)
+_CONFIG_LOCK = RLock()
 
 DEFAULT_CONFIG = {
   "system_context": {
@@ -59,7 +60,6 @@ class AgentConfigService:
         self.backup_dir = settings.AGENT_CONFIG_BACKUP_DIR
         self.backup_enabled = settings.AGENT_CONFIG_BACKUP_ENABLED
         self.backup_count = settings.AGENT_CONFIG_BACKUP_COUNT
-        self.lock_path = self.file_path.with_suffix('.lock')
         self._cache: Optional[Dict[str, Any]] = None
         self._ensure_file_and_dirs()
 
@@ -77,7 +77,7 @@ class AgentConfigService:
     def _load_data(self) -> Dict[str, Any]:
         if self._cache is not None:
             return copy.deepcopy(self._cache)
-        with FileLock(self.lock_path):
+        with _CONFIG_LOCK:
             try:
                 with open(self.file_path, 'r', encoding='utf-8') as f:
                     self._cache = json.load(f)
@@ -90,7 +90,7 @@ class AgentConfigService:
         backup_filename = None
         if backup and self.backup_enabled:
             backup_filename = self._create_backup()
-        with FileLock(self.lock_path):
+        with _CONFIG_LOCK:
             try:
                 with open(self.file_path, 'w', encoding='utf-8') as f:
                     json.dump(data, f, indent=2, ensure_ascii=False, default=str)
@@ -133,7 +133,7 @@ class AgentConfigService:
             full_data = {**validated_data, "metadata": {"last_updated": datetime.now(timezone.utc), "updated_by": updated_by}}
             result = self._save_data(full_data)
 
-            AIGatewayService.reload_engine()
+            AIGatewayService.reconfigure_cached_engine()
 
             return result
         except (ValueError, ValidationError) as e:
@@ -157,7 +157,7 @@ class AgentConfigService:
         current_config.setdefault("metadata", {})["last_updated"] = datetime.now(timezone.utc)
         current_config["metadata"]["updated_by"] = updated_by
 
-        AIGatewayService.reload_engine()
+        AIGatewayService.reconfigure_cached_engine()
 
         return self._save_data(current_config)
 
@@ -184,7 +184,7 @@ class AgentConfigService:
         content["metadata"]["restored_from"] = filename
         self._save_data(content, backup=False)
 
-        AIGatewayService.reload_engine()
+        AIGatewayService.reconfigure_cached_engine()
 
         return filename, current_backup
 

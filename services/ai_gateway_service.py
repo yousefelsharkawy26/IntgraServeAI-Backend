@@ -12,10 +12,10 @@ from sqlalchemy import select, delete
 from core.config import settings
 from core.database import AsyncSessionLocal
 from models.chat import ChatConversation, ChatMessage, SenderType
+from repositories.action_repository import ActionRepository
 from models.ticket import TicketPriority, TicketType
 from services.ticket_service import TicketService
 from utils.schemas.ticket_schemas import ExternalTicketCreate
-from utils.ai_config_adapter import AIConfigAdapter
 from utils.exceptions import MessageNotEditableException, MessageNotFoundException
 
 from ai_engine.action_engine import ActionEngine
@@ -36,21 +36,37 @@ class AIGatewayService:
     @classmethod
     def get_engine(cls) -> ActionEngine:
         if cls._engine_cache is None:
-            cls.reload_engine()
+            raise RuntimeError("ActionEngine has not been initialized")
         return cls._engine_cache
 
     @classmethod
-    def reload_engine(cls) -> None:
-        agent_config_path = settings.AGENT_CONFIG_FILE_FULL_PATH
-        actions_file_path = settings.ACTIONS_FILE_FULL_PATH
+    def has_cached_engine(cls) -> bool:
+        return cls._engine_cache is not None
 
-        actions_list = AIConfigAdapter.load_actions_for_engine(str(actions_file_path))
-        
-        logger.info("Reloading ActionEngine configuration into memory cache.")
+    @classmethod
+    def configure_engine(cls, actions_list: list[dict[str, Any]]) -> None:
+        logger.info("Reloading ActionEngine from the PostgreSQL Action Registry.")
         cls._engine_cache = ActionEngine(
-            agent_config_path=str(agent_config_path),
-            actions_list=actions_list
+            agent_config_path=str(settings.AGENT_CONFIG_FILE_FULL_PATH),
+            actions_list=actions_list,
         )
+
+    @classmethod
+    def reconfigure_cached_engine(cls) -> None:
+        if cls._engine_cache is not None:
+            cls.configure_engine([
+                action.model_dump(mode="json") for action in cls._engine_cache.actions
+            ])
+
+    @classmethod
+    async def reload_engine(cls) -> None:
+        async with AsyncSessionLocal() as session:
+            rows = await ActionRepository(session).list()
+            cls.configure_engine([
+                row.to_dict(include_id=False, include_engine_fields=True)
+                | {"_backend_id": row.id}
+                for row in rows
+            ])
 
     async def get_or_create_conversation(
         self,

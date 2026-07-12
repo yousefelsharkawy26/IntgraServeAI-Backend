@@ -1,9 +1,11 @@
 # apis/v1/actions.py
 from fastapi import APIRouter, Depends, status, Query, Body
-from typing import Optional, Dict, Any, List
-from functools import lru_cache
+from typing import Optional, Dict, Any
 
 from services.action_service import ActionService
+from repositories.action_repository import ActionRepository
+from core.database import get_db
+from sqlalchemy.ext.asyncio import AsyncSession
 from utils.schemas.action_schemas import (
     ActionCreate,
     ActionUpdate,
@@ -17,13 +19,6 @@ from utils.schemas.action_schemas import (
     ActionValidateResponse,
     ActionTypesResponse,
     get_action_types_info,
-    BackupInfo,
-    BackupListResponse,
-    BackupContentResponse,
-    BackupRestoreResponse,
-    BackupDeleteResponse,
-    BackupDeleteAllResponse,
-    BackupCompareResponse,
 )
 from utils.dependencies import require_admin, get_current_active_user
 from models.user import User
@@ -33,10 +28,9 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 
-@lru_cache()
-def get_action_service() -> ActionService:
-    """Dependency to get ActionService singleton instance"""
-    return ActionService()
+def get_action_service(db: AsyncSession = Depends(get_db)) -> ActionService:
+    """Create a request-scoped service backed by the current DB transaction."""
+    return ActionService(ActionRepository(db))
 
 
 # ============================================================================
@@ -79,126 +73,6 @@ async def validate_action(
         message=message,
         warnings=warnings if warnings else None
     )
-
-
-# ============================================================================
-# Backup Routes (MUST BE BEFORE /{action_id}!)
-# ============================================================================
-
-@router.get(
-    "/backups",
-    response_model=BackupListResponse,
-    status_code=status.HTTP_200_OK,
-    summary="List All Backups",
-    description="Get a list of all backup files.",
-    tags=["Actions"]
-)
-async def list_backups(
-    current_user: User = Depends(require_admin),
-    action_service: ActionService = Depends(get_action_service)
-):
-    """List all available backups (newest first)."""
-    backups = await action_service.get_all_backups()
-    return BackupListResponse(
-        total=len(backups),
-        backups=[BackupInfo(**b) for b in backups]
-    )
-
-
-@router.delete(
-    "/backups",
-    response_model=BackupDeleteAllResponse,
-    status_code=status.HTTP_200_OK,
-    summary="Delete All Backups",
-    description="Delete all backup files.",
-    tags=["Actions"]
-)
-async def delete_all_backups(
-    current_user: User = Depends(require_admin),
-    action_service: ActionService = Depends(get_action_service)
-):
-    """Delete all backups. WARNING: Permanent!"""
-    result = await action_service.delete_all_backups()
-    logger.info(f"All backups deleted by admin: {current_user.email}")
-    return BackupDeleteAllResponse(**result)
-
-
-@router.get(
-    "/backups/{filename}",
-    response_model=BackupContentResponse,
-    status_code=status.HTTP_200_OK,
-    responses={404: {"description": "Backup not found"}},
-    summary="Get Backup Content",
-    description="Get the content of a specific backup file.",
-    tags=["Actions"]
-)
-async def get_backup_content(
-    filename: str,
-    current_user: User = Depends(require_admin),
-    action_service: ActionService = Depends(get_action_service)
-):
-    """Get content of a specific backup."""
-    content = await action_service.get_backup_content(filename)
-    return BackupContentResponse(**content)
-
-
-@router.get(
-    "/backups/{filename}/compare",
-    response_model=BackupCompareResponse,
-    status_code=status.HTTP_200_OK,
-    responses={404: {"description": "Backup not found"}},
-    summary="Compare With Backup",
-    description="Compare current actions with a backup.",
-    tags=["Actions"]
-)
-async def compare_with_backup(
-    filename: str,
-    current_user: User = Depends(require_admin),
-    action_service: ActionService = Depends(get_action_service)
-):
-    """Compare current state with a backup."""
-    comparison = await action_service.compare_with_backup(filename)
-    return BackupCompareResponse(**comparison)
-
-
-@router.post(
-    "/backups/{filename}/restore",
-    response_model=BackupRestoreResponse,
-    status_code=status.HTTP_200_OK,
-    responses={404: {"description": "Backup not found"}},
-    summary="Restore Backup",
-    description="Restore actions from a backup. Current state backed up first.",
-    tags=["Actions"]
-)
-async def restore_backup(
-    filename: str,
-    current_user: User = Depends(require_admin),
-    action_service: ActionService = Depends(get_action_service)
-):
-    """Restore from backup. Current state auto-backed up first."""
-    result = await action_service.restore_backup(filename)
-    logger.info(f"Backup '{filename}' restored by admin: {current_user.email}")
-    return BackupRestoreResponse(**result)
-
-
-@router.delete(
-    "/backups/{filename}",
-    response_model=BackupDeleteResponse,
-    status_code=status.HTTP_200_OK,
-    responses={404: {"description": "Backup not found"}},
-    summary="Delete Backup",
-    description="Delete a specific backup file.",
-    tags=["Actions"]
-)
-async def delete_backup(
-    filename: str,
-    current_user: User = Depends(require_admin),
-    action_service: ActionService = Depends(get_action_service)
-):
-    """Delete a specific backup. WARNING: Permanent!"""
-    result = await action_service.delete_backup(filename)
-    logger.info(f"Backup '{filename}' deleted by admin: {current_user.email}")
-    return BackupDeleteResponse(**result)
 
 
 # ============================================================================

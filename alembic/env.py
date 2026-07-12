@@ -21,6 +21,7 @@ from models.chat import ChatConversation, ChatMessage, AgentRating
 from models.system import SystemType, ActionProtocol, SystemAction, ActionExecutionLog
 from models.auth import ApiAuthType, ApiAuthentication
 from models.audit import AuditLog
+from models.action import Action
 
 # this is the Alembic Config object
 config = context.config
