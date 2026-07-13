@@ -14,8 +14,8 @@ class BaseConfigModel(BaseModel):
 class SystemContext(BaseConfigModel):
     title: str = Field(..., min_length=2, max_length=200)
     description: str = Field(..., min_length=10)
-    version: str = Field(..., pattern=r"^\d+\.\d+\.\d+$")
-    tone: str = Field(..., min_length=5)
+    version: str = Field(..., min_length=1, max_length=50)
+    tone: str = Field(..., min_length=5, max_length=500)
 
 class ApiRequestDefaults(BaseConfigModel):
     protocol: Literal["http", "https"]
@@ -32,14 +32,19 @@ class LLMLocalLoadingParams(BaseConfigModel):
     quantization: Literal["int4", "int8", "f16", "f32"]
 
 class LLMConfig(BaseConfigModel):
+    model_config = ConfigDict(extra="allow")
+
     location: str
     provider: str
     model_name: str
-    rate_limit_delay_seconds: int = Field(..., ge=0)
-    temperature: float = Field(..., ge=0.0, le=2.0)
-    max_tokens: int = Field(..., gt=0)
+    rate_limit_delay_seconds: int = Field(default=0, ge=0)
+    max_iterations: int = Field(default=20, ge=1, le=100)
+    temperature: float = Field(default=0.7, ge=0.0, le=2.0)
+    max_tokens: int = Field(default=2048, gt=0)
+    api_key: Optional[str] = None
+    api_key_reference: Optional[str] = None
     local_loading_params: Optional[LLMLocalLoadingParams] = None
-    system_prompt_template: str
+    system_prompt_template: str = ""
 
 class GlobalDefaults(BaseConfigModel):
     model_config = ConfigDict(extra="allow") # Allow any sub-keys like api_request, etc.

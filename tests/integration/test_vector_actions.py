@@ -18,6 +18,7 @@ Markers: integration, slow
 
 import pytest
 
+from tests.agent_config_test_utils import load_agent_config
 from ai_engine.action_engine import ActionEngine
 from utils.exceptions import VectorSearchError, UnsupportedDatabaseDriver
 from ai_engine.config import EmbeddingConfig
@@ -101,7 +102,7 @@ class TestPostgresVectorSearch:
             }
         }]
 
-        engine = ActionEngine(vector_agent_config, actions_list=actions)
+        engine = ActionEngine(load_agent_config(vector_agent_config), actions_list=actions)
 
         import ai_engine.action_engine as ae
         orig_generate = ae.generate_embedding
@@ -146,7 +147,7 @@ class TestPostgresVectorSearch:
                 "template": "Found: {{value}}"
             }
         }]
-        engine = ActionEngine(vector_agent_config, actions_list=actions)
+        engine = ActionEngine(load_agent_config(vector_agent_config), actions_list=actions)
 
         import ai_engine.action_engine as ae
         orig_generate = ae.generate_embedding
@@ -203,7 +204,7 @@ class TestSQLiteVectorSearch:
             }
         }]
 
-        engine = ActionEngine(vector_agent_config, actions_list=actions)
+        engine = ActionEngine(load_agent_config(vector_agent_config), actions_list=actions)
 
         import ai_engine.action_engine as ae
         orig_generate = ae.generate_embedding
@@ -250,7 +251,7 @@ class TestVectorErrors:
                 }
             }
         }]
-        engine = ActionEngine(vector_agent_config, actions_list=actions)
+        engine = ActionEngine(load_agent_config(vector_agent_config), actions_list=actions)
 
         import ai_engine.action_engine as ae
         orig_generate = ae.generate_embedding
@@ -285,7 +286,7 @@ class TestVectorErrors:
                 }
             }
         }]
-        engine = ActionEngine(vector_agent_config, actions_list=actions)
+        engine = ActionEngine(load_agent_config(vector_agent_config), actions_list=actions)
         with pytest.raises(VectorSearchError) as exc_info:
             await engine.execute_action_directly("no_vector_param", {"query": "test"})
         assert "param_type='vector'" in str(exc_info.value)

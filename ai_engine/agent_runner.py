@@ -31,7 +31,7 @@ class AgentRunner:
         if not self.engine.agent_config.llm_config:
             raise ParsingException(
                 "llm_config is required in agent configuration but was not provided. "
-                "Please define 'llm_config' in your agent_config.json with at least "
+                "Please define 'llm_config' in the active agent configuration with at least "
                 "'provider' and 'model_name' fields."
             )
 

@@ -9,10 +9,11 @@ from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete
 
-from core.config import settings
 from core.database import AsyncSessionLocal
 from models.chat import ChatConversation, ChatMessage, SenderType
 from repositories.action_repository import ActionRepository
+from repositories.agent_config_repository import AgentConfigRepository
+from utils.agent_config_mapper import AgentConfigMapper
 from models.ticket import TicketPriority, TicketType
 from services.ticket_service import TicketService
 from utils.schemas.ticket_schemas import ExternalTicketCreate
@@ -44,29 +45,32 @@ class AIGatewayService:
         return cls._engine_cache is not None
 
     @classmethod
-    def configure_engine(cls, actions_list: list[dict[str, Any]]) -> None:
-        logger.info("Reloading ActionEngine from the PostgreSQL Action Registry.")
+    def configure_engine(
+        cls,
+        agent_config: Dict[str, Any],
+        actions_list: list[dict[str, Any]],
+    ) -> None:
+        logger.info("Reloading ActionEngine configuration from PostgreSQL.")
         cls._engine_cache = ActionEngine(
-            agent_config_path=str(settings.AGENT_CONFIG_FILE_FULL_PATH),
+            agent_config=agent_config,
             actions_list=actions_list,
         )
 
     @classmethod
-    def reconfigure_cached_engine(cls) -> None:
-        if cls._engine_cache is not None:
-            cls.configure_engine([
-                action.model_dump(mode="json") for action in cls._engine_cache.actions
-            ])
-
-    @classmethod
     async def reload_engine(cls) -> None:
         async with AsyncSessionLocal() as session:
+            agent = await AgentConfigRepository(session).get_active()
+            if agent is None:
+                raise RuntimeError("No active agent configuration exists in the database")
             rows = await ActionRepository(session).list()
-            cls.configure_engine([
-                row.to_dict(include_id=False, include_engine_fields=True)
-                | {"_backend_id": row.id}
-                for row in rows
-            ])
+            cls.configure_engine(
+                AgentConfigMapper.to_engine_dict(agent),
+                [
+                    row.to_dict(include_id=False, include_engine_fields=True)
+                    | {"_backend_id": row.id}
+                    for row in rows
+                ],
+            )
 
     async def get_or_create_conversation(
         self,

@@ -4,6 +4,7 @@ from pydantic import ValidationError
 
 from unittest.mock import patch, AsyncMock, MagicMock
 
+from tests.agent_config_test_utils import load_agent_config
 from ai_engine.action_engine import ActionEngine
 from utils.exceptions import (
     InvalidActionStructure, ActionNotFound, ActionNotActive,
@@ -70,7 +71,7 @@ class TestToolBuilding:
             {"name": "active1", "description": "A", "type": "internal", "active": True},
             {"name": "inactive1", "description": "I", "type": "internal", "active": False}
         ]
-        engine = ActionEngine(minimal_agent_path, actions_list=actions)
+        engine = ActionEngine(load_agent_config(minimal_agent_path), actions_list=actions)
         tools = engine.build_tools()
         assert len(tools) == 1
         assert tools[0].name == "active1"
@@ -79,7 +80,7 @@ class TestToolBuilding:
         actions = [
             {"name": "inactive", "description": "I", "type": "internal", "active": False}
         ]
-        engine = ActionEngine(minimal_agent_path, actions_list=actions)
+        engine = ActionEngine(load_agent_config(minimal_agent_path), actions_list=actions)
         assert engine.build_tools() == []
 
     def test_tool_schema_generation(self, minimal_agent_path):
@@ -98,7 +99,7 @@ class TestToolBuilding:
                 }
             }
         }]
-        engine = ActionEngine(minimal_agent_path, actions_list=actions)
+        engine = ActionEngine(load_agent_config(minimal_agent_path), actions_list=actions)
         tools = engine.build_tools()
         schema = tools[0].args_schema
         assert "order_id" in schema.model_fields
@@ -123,7 +124,7 @@ class TestToolBuilding:
                 }
             }
         }]
-        engine = ActionEngine(minimal_agent_path, actions_list=actions)
+        engine = ActionEngine(load_agent_config(minimal_agent_path), actions_list=actions)
         tools = engine.build_tools()
         schema = tools[0].args_schema
         field = schema.model_fields["city"]
@@ -153,7 +154,7 @@ class TestToolBuilding:
                 }
             }
         }]
-        engine = ActionEngine(minimal_agent_path, actions_list=actions)
+        engine = ActionEngine(load_agent_config(minimal_agent_path), actions_list=actions)
         tools = engine.build_tools()
         schema = tools[0].args_schema
 
@@ -171,7 +172,7 @@ class TestToolBuilding:
             "type": "internal",
             "active": True
         }]
-        engine = ActionEngine(minimal_agent_path, actions_list=actions)
+        engine = ActionEngine(load_agent_config(minimal_agent_path), actions_list=actions)
         tools = engine.build_tools()
         assert tools[0].description == "This is the description"
 
@@ -188,7 +189,7 @@ class TestDirectExecution:
             "parameters": {},
             "response_config": {"mode": "raw"}
         }]
-        engine = ActionEngine(minimal_agent_path, actions_list=actions)
+        engine = ActionEngine(load_agent_config(minimal_agent_path), actions_list=actions)
 
         mock_requests.return_value.status_code = 200
         mock_requests.return_value.json.return_value = {"status": "ok"}
@@ -197,7 +198,7 @@ class TestDirectExecution:
         assert "ok" in result
 
     async def test_not_found(self, minimal_agent_path):
-        engine = ActionEngine(minimal_agent_path, actions_list=[])
+        engine = ActionEngine(load_agent_config(minimal_agent_path), actions_list=[])
         with pytest.raises(ActionNotFound) as exc_info:
             await engine.execute_action_directly("missing", {})
         assert "missing" in str(exc_info.value)
@@ -206,7 +207,7 @@ class TestDirectExecution:
         actions = [
             {"name": "inactive", "description": "I", "type": "internal", "active": False}
         ]
-        engine = ActionEngine(minimal_agent_path, actions_list=actions)
+        engine = ActionEngine(load_agent_config(minimal_agent_path), actions_list=actions)
         with pytest.raises(ActionNotActive) as exc_info:
             await engine.execute_action_directly("inactive", {})
         assert "inactive" in str(exc_info.value)
@@ -226,7 +227,7 @@ class TestDirectExecution:
                 }
             }
         }]
-        engine = ActionEngine(minimal_agent_path, actions_list=actions)
+        engine = ActionEngine(load_agent_config(minimal_agent_path), actions_list=actions)
         with pytest.raises(InvalidActionStructure) as exc_info:
             await engine.execute_action_directly("typed_action", {"count": "not_an_int"})
         assert "validation" in str(exc_info.value).lower()
@@ -239,7 +240,7 @@ class TestDirectExecution:
             "active": True,
             "requires_confirmation": True
         }]
-        engine = ActionEngine(minimal_agent_path, actions_list=actions)
+        engine = ActionEngine(load_agent_config(minimal_agent_path), actions_list=actions)
         with pytest.raises(ActionRequiresConfirmationError) as exc_info:
             await engine.execute_action_directly("dangerous", {"x": 1})
         assert exc_info.value.action_name == "dangerous"
@@ -253,7 +254,7 @@ class TestDirectExecution:
             "active": True,
             "requires_confirmation": True
         }]
-        engine = ActionEngine(minimal_agent_path, actions_list=actions)
+        engine = ActionEngine(load_agent_config(minimal_agent_path), actions_list=actions)
         result = await engine.execute_action_directly("dangerous", {"x": 1}, skip_confirmation=True)
         assert "processed successfully" in result
 
@@ -272,7 +273,7 @@ class TestDirectExecution:
                 }
             }
         }]
-        engine = ActionEngine(minimal_agent_path, actions_list=actions)
+        engine = ActionEngine(load_agent_config(minimal_agent_path), actions_list=actions)
         result = await engine.execute_action_directly("typed_action", {"count": 42})
         assert "42" in result
 
@@ -305,7 +306,7 @@ class TestDirectExecution:
             },
             "response_config": {"mode": "raw"}
         }]
-        engine = ActionEngine(minimal_agent_path, actions_list=actions)
+        engine = ActionEngine(load_agent_config(minimal_agent_path), actions_list=actions)
         result = await engine.execute_action_directly("search_vec", {"topic": "shoes"})
         assert "Product" in result
         mock_generate_embedding.assert_called_once_with("shoes", engine.actions[0].execution_config.embedding_config)
@@ -313,12 +314,12 @@ class TestDirectExecution:
 
 class TestPathParamSanitization:
     def test_valid_path_param(self, minimal_agent_path):
-        engine = ActionEngine(minimal_agent_path, actions_list=[])
+        engine = ActionEngine(load_agent_config(minimal_agent_path), actions_list=[])
         result = engine._sanitize_path_param("id", "ORD-123")
         assert result == "ORD-123"
 
     def test_valid_path_param_numeric(self, minimal_agent_path):
-        engine = ActionEngine(minimal_agent_path, actions_list=[])
+        engine = ActionEngine(load_agent_config(minimal_agent_path), actions_list=[])
         result = engine._sanitize_path_param("id", 123)
         assert result == "123"
 
@@ -330,13 +331,13 @@ class TestPathParamSanitization:
         "path\\backslash"
     ])
     def test_invalid_path_param_rejected(self, minimal_agent_path, bad_value):
-        engine = ActionEngine(minimal_agent_path, actions_list=[])
+        engine = ActionEngine(load_agent_config(minimal_agent_path), actions_list=[])
         with pytest.raises(ExecutionException) as exc_info:
             engine._sanitize_path_param("id", bad_value)
         assert "invalid characters" in str(exc_info.value)
 
     def test_url_encoded_traversal_documented(self, minimal_agent_path):
-        engine = ActionEngine(minimal_agent_path, actions_list=[])
+        engine = ActionEngine(load_agent_config(minimal_agent_path), actions_list=[])
         result = engine._sanitize_path_param("id", "%2e%2e")
         assert result == "%2e%2e"
 
@@ -350,7 +351,7 @@ class TestInternalExecution:
             "type": "internal",
             "active": True
         }]
-        engine = ActionEngine(minimal_agent_path, actions_list=actions)
+        engine = ActionEngine(load_agent_config(minimal_agent_path), actions_list=actions)
         result = await engine.execute_action_directly("notify", {"msg": "hello"})
         assert "notify" in result
         assert "hello" in result
@@ -362,6 +363,6 @@ class TestInternalExecution:
             "type": "internal",
             "active": True
         }]
-        engine = ActionEngine(minimal_agent_path, actions_list=actions)
+        engine = ActionEngine(load_agent_config(minimal_agent_path), actions_list=actions)
         result = await engine.execute_action_directly("ping", {})
         assert "ping" in result.lower()

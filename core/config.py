@@ -74,26 +74,6 @@ class Settings(BaseSettings):
     AI_GATEWAY_ENABLED: bool = True
     CHAT_SESSION_TIMEOUT_MINUTES: int = 30
 
-    AGENT_CONFIG_FILE_PATH: str = "data/agent_config.json"
-    AGENT_CONFIG_BACKUP_ENABLED: bool = True
-    AGENT_CONFIG_BACKUP_COUNT: int = 5
-
-    @property
-    def AGENT_CONFIG_FILE_FULL_PATH(self) -> Path:
-        """Get full path to agent config file, anchored to project root if relative"""
-        path = Path(self.AGENT_CONFIG_FILE_PATH)
-        if not path.is_absolute():
-            path = BASE_DIR / path
-        return path
-    
-    @property
-    def AGENT_CONFIG_BACKUP_DIR(self) -> Path:
-        """Get agent config backup directory path, anchored to project root if relative"""
-        path = Path(self.AGENT_CONFIG_FILE_PATH)
-        if not path.is_absolute():
-            path = BASE_DIR / path
-        return path.parent / "backups"
-
     model_config = SettingsConfigDict(
         env_file=".env",
         case_sensitive=True,

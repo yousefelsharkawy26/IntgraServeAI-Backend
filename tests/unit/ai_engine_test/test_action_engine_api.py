@@ -2,6 +2,7 @@ import pytest
 import httpx
 from unittest.mock import patch, AsyncMock, MagicMock
 
+from tests.agent_config_test_utils import load_agent_config
 from ai_engine.action_engine import ActionEngine
 from utils.exceptions import (
     PathParamNotFound, BodyParamOnGetRequest, ExecutionException
@@ -81,7 +82,7 @@ class TestApiRequestExecution:
             },
             "response_config": {"mode": "raw"}
         }]
-        engine = ActionEngine(minimal_agent_path, actions_list=actions)
+        engine = ActionEngine(load_agent_config(minimal_agent_path), actions_list=actions)
 
         mock_requests.return_value.status_code = 200
         mock_requests.return_value.json.return_value = {"id": "ORD-123"}
@@ -114,7 +115,7 @@ class TestApiRequestExecution:
             },
             "response_config": {"mode": "raw"}
         }]
-        engine = ActionEngine(minimal_agent_path, actions_list=actions)
+        engine = ActionEngine(load_agent_config(minimal_agent_path), actions_list=actions)
 
         mock_requests.return_value.status_code = 200
         mock_requests.return_value.json.return_value = {}
@@ -141,7 +142,7 @@ class TestApiRequestExecution:
             },
             "response_config": {"mode": "raw"}
         }]
-        engine = ActionEngine(minimal_agent_path, actions_list=actions)
+        engine = ActionEngine(load_agent_config(minimal_agent_path), actions_list=actions)
 
         mock_requests.return_value.status_code = 200
         mock_requests.return_value.json.return_value = {}
@@ -166,7 +167,7 @@ class TestApiRequestExecution:
             },
             "response_config": {"mode": "raw"}
         }]
-        engine = ActionEngine(minimal_agent_path, actions_list=actions)
+        engine = ActionEngine(load_agent_config(minimal_agent_path), actions_list=actions)
 
         mock_requests.return_value.status_code = 200
         mock_requests.return_value.json.return_value = {"ok": True}
@@ -192,7 +193,7 @@ class TestApiRequestExecution:
                 }
             }
         }]
-        engine = ActionEngine(minimal_agent_path, actions_list=actions)
+        engine = ActionEngine(load_agent_config(minimal_agent_path), actions_list=actions)
         with pytest.raises(BodyParamOnGetRequest):
             await engine.execute_action_directly("bad_get", {"data": "payload"})
 
@@ -212,7 +213,7 @@ class TestApiRequestExecution:
                 }
             }
         }]
-        engine = ActionEngine(minimal_agent_path, actions_list=actions)
+        engine = ActionEngine(load_agent_config(minimal_agent_path), actions_list=actions)
         with pytest.raises(PathParamNotFound) as exc_info:
             await engine.execute_action_directly("bad_path", {"user_id": "123"})
         assert "user_id" in str(exc_info.value)
@@ -233,7 +234,7 @@ class TestApiRequestExecution:
                 }
             }
         }]
-        engine = ActionEngine(minimal_agent_path, actions_list=actions)
+        engine = ActionEngine(load_agent_config(minimal_agent_path), actions_list=actions)
         with pytest.raises(PathParamNotFound) as exc_info:
             await engine.execute_action_directly("bad_url", {})
         assert "unresolved" in str(exc_info.value).lower()
@@ -252,7 +253,7 @@ class TestApiRequestExecution:
             "parameters": {},
             "response_config": {"mode": "raw"}
         }]
-        engine = ActionEngine(minimal_agent_path, actions_list=actions)
+        engine = ActionEngine(load_agent_config(minimal_agent_path), actions_list=actions)
 
         mock_requests.return_value.status_code = 200
         mock_requests.return_value.json.return_value = {}
@@ -274,7 +275,7 @@ class TestApiRequestExecution:
             "parameters": {},
             "response_config": {"mode": "raw"}
         }]
-        engine = ActionEngine(minimal_agent_path, actions_list=actions)
+        engine = ActionEngine(load_agent_config(minimal_agent_path), actions_list=actions)
 
         mock_requests.return_value.status_code = 200
         mock_requests.return_value.json.return_value = {}
@@ -295,7 +296,7 @@ class TestApiRequestExecution:
                 "on_error": "Custom error: {{error}}"
             }
         }]
-        engine = ActionEngine(minimal_agent_path, actions_list=actions)
+        engine = ActionEngine(load_agent_config(minimal_agent_path), actions_list=actions)
 
         mock_requests.return_value.status_code = 404
         mock_requests.return_value.json.return_value = {"error": "not found"}
@@ -318,7 +319,7 @@ class TestApiRequestExecution:
                 "on_error": "Server error: {{error}}"
             }
         }]
-        engine = ActionEngine(minimal_agent_path, actions_list=actions)
+        engine = ActionEngine(load_agent_config(minimal_agent_path), actions_list=actions)
 
         mock_requests.return_value.status_code = 500
         mock_requests.return_value.text = "Internal Server Error"
@@ -336,7 +337,7 @@ class TestApiRequestExecution:
             "parameters": {},
             "response_config": {"mode": "raw"}
         }]
-        engine = ActionEngine(minimal_agent_path, actions_list=actions)
+        engine = ActionEngine(load_agent_config(minimal_agent_path), actions_list=actions)
 
         mock_requests.return_value.status_code = 200
         mock_requests.return_value.json.side_effect = ValueError("Not JSON")
@@ -358,7 +359,7 @@ class TestApiRequestExecution:
                 "on_error": "Connection failed: {{error}}"
             }
         }]
-        engine = ActionEngine(minimal_agent_path, actions_list=actions)
+        engine = ActionEngine(load_agent_config(minimal_agent_path), actions_list=actions)
 
         mock_requests.side_effect = httpx.RequestError("Connection refused", request=AsyncMock())
         with pytest.raises(ExecutionException):
@@ -394,7 +395,7 @@ class TestApiRequestExecution:
             "parameters": {},
             "response_config": {"mode": "raw"}
         }]
-        engine = ActionEngine(agent_path, actions_list=actions)
+        engine = ActionEngine(load_agent_config(agent_path), actions_list=actions)
 
         mock_requests.return_value.status_code = 200
         mock_requests.return_value.json.return_value = {}
@@ -425,7 +426,7 @@ class TestApiRequestExecution:
             "parameters": {},
             "response_config": {"mode": "raw"}
         }]
-        engine = ActionEngine(agent_path, actions_list=actions)
+        engine = ActionEngine(load_agent_config(agent_path), actions_list=actions)
 
         mock_requests.return_value.status_code = 200
         mock_requests.return_value.json.return_value = {}
@@ -460,7 +461,7 @@ class TestApiRequestExecution:
             "parameters": {},
             "response_config": {"mode": "raw"}
         }]
-        engine = ActionEngine(agent_path, actions_list=actions)
+        engine = ActionEngine(load_agent_config(agent_path), actions_list=actions)
 
         mock_requests.return_value.status_code = 200
         mock_requests.return_value.json.return_value = {}

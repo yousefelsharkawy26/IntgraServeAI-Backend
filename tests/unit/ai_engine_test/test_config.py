@@ -7,6 +7,7 @@ from ai_engine.config import (
     ApiRequestDefaults, LLMConfig, EmbeddingConfig, LocalLoadingParams
 )
 from utils.exceptions import MissingField, InvalidParamValueType, InvalidActionStructure
+from tests.agent_config_test_utils import load_agent_config
 from ai_engine.action_engine import ActionEngine
 
 
@@ -240,7 +241,7 @@ class TestActionEngineInitialization:
             {"name": "dup", "description": "Second", "type": "internal", "active": True}
         ]
         with pytest.raises(InvalidActionStructure) as exc_info:
-            ActionEngine(agent_path, actions_list=actions)
+            ActionEngine(load_agent_config(agent_path), actions_list=actions)
         assert "Duplicate action name 'dup'" in str(exc_info.value)
 
     def test_empty_actions_list_accepted(self, write_temp_json):
@@ -248,18 +249,9 @@ class TestActionEngineInitialization:
             "system_context": {"title": "T", "description": "D", "version": "1", "tone": "neutral"},
             "global_defaults": {}
         }, "agent.json")
-        engine = ActionEngine(agent_path, actions_list=[])
+        engine = ActionEngine(load_agent_config(agent_path), actions_list=[])
         assert engine.actions == []
         assert engine.build_tools() == []
-
-    def test_missing_agent_config_file(self, write_temp_json):
-        with pytest.raises(Exception):
-            ActionEngine("/nonexistent/agent_config.json", actions_list=[])
-
-    def test_invalid_agent_config_json(self, write_temp_json):
-        bad_path = write_temp_json("not json", "bad_agent.json")
-        with pytest.raises(Exception):
-            ActionEngine(bad_path, actions_list=[])
 
     def test_actions_list_not_list(self, write_temp_json):
         agent_path = write_temp_json({
@@ -267,7 +259,7 @@ class TestActionEngineInitialization:
             "global_defaults": {}
         }, "agent.json")
         with pytest.raises(InvalidActionStructure):
-            ActionEngine(agent_path, actions_list="not a list")
+            ActionEngine(load_agent_config(agent_path), actions_list="not a list")
 
 class TestGlobalDefaultsMerging:
     def test_api_request_url_merging(self, write_temp_json):
@@ -297,7 +289,7 @@ class TestGlobalDefaultsMerging:
             }
         }]
 
-        engine = ActionEngine(agent_path, actions_list=actions)
+        engine = ActionEngine(load_agent_config(agent_path), actions_list=actions)
         config = engine.actions[0].execution_config
         assert config.url == "https://api.example.com/orders"
         assert config.timeout == 5000
@@ -329,7 +321,7 @@ class TestGlobalDefaultsMerging:
             }
         }]
 
-        engine = ActionEngine(agent_path, actions_list=actions)
+        engine = ActionEngine(load_agent_config(agent_path), actions_list=actions)
         assert engine.actions[0].execution_config.url == "https://api.example.com/orders"
 
     def test_api_request_url_already_absolute(self, write_temp_json):
@@ -357,7 +349,7 @@ class TestGlobalDefaultsMerging:
             }
         }]
 
-        engine = ActionEngine(agent_path, actions_list=actions)
+        engine = ActionEngine(load_agent_config(agent_path), actions_list=actions)
         assert engine.actions[0].execution_config.url == "http://other.com/orders"
 
     def test_vector_query_connector_fallback(self, write_temp_json):
@@ -382,7 +374,7 @@ class TestGlobalDefaultsMerging:
             }
         }]
 
-        engine = ActionEngine(agent_path, actions_list=actions)
+        engine = ActionEngine(load_agent_config(agent_path), actions_list=actions)
         config = engine.actions[0].execution_config
         assert config.connector == "postgres"
         assert config.connection_string == "postgres://localhost/db"
@@ -423,7 +415,7 @@ class TestGlobalDefaultsMerging:
             }
         }]
 
-        engine = ActionEngine(agent_path, actions_list=actions)
+        engine = ActionEngine(load_agent_config(agent_path), actions_list=actions)
         emb = engine.actions[0].execution_config.embedding_config
         assert emb.model_name == "custom-model"
         assert emb.dimensions == 512
@@ -446,7 +438,7 @@ class TestGlobalDefaultsMerging:
             "execution_config": {"method": "GET", "url": "/test"}
         }]
 
-        engine = ActionEngine(agent_path, actions_list=actions)
+        engine = ActionEngine(load_agent_config(agent_path), actions_list=actions)
         action = engine.actions[0]
         assert action.response_config is not None
         assert action.response_config.mode == "json"
@@ -469,7 +461,7 @@ class TestGlobalDefaultsMerging:
             "response_config": {"mode": "raw", "on_error": "Action Error"}
         }]
 
-        engine = ActionEngine(agent_path, actions_list=actions)
+        engine = ActionEngine(load_agent_config(agent_path), actions_list=actions)
         assert engine.actions[0].response_config.on_error == "Action Error"
 
     def test_rpc_global_defaults_merge(self, write_temp_json):
@@ -497,7 +489,7 @@ class TestGlobalDefaultsMerging:
             }
         }]
 
-        engine = ActionEngine(agent_path, actions_list=actions)
+        engine = ActionEngine(load_agent_config(agent_path), actions_list=actions)
         headers = engine.actions[0].execution_config.headers
         assert headers == {"X-Global": "1", "X-Action": "2"}
 
@@ -517,7 +509,7 @@ class TestConfigRoundTrip:
             }
         }, "agent.json")
 
-        engine = ActionEngine(agent_path, actions_list=[])
+        engine = ActionEngine(load_agent_config(agent_path), actions_list=[])
         dumped = engine.agent_config.model_dump()
         reloaded = AgentConfiguration(**dumped)
         assert reloaded.system_context.title == "T"
@@ -549,7 +541,7 @@ class TestSystemPrompt:
                 "system_prompt_template": "Title: {{title}}\\nDesc: {{description}}\\nTone: {{tone}}"
             }
         }, "agent.json")
-        engine = ActionEngine(agent_path, actions_list=[])
+        engine = ActionEngine(load_agent_config(agent_path), actions_list=[])
         prompt = engine.get_system_prompt()
         assert "Support Bot" in prompt
         assert "Helps users" in prompt
@@ -565,7 +557,7 @@ class TestSystemPrompt:
             },
             "global_defaults": {}
         }, "agent.json")
-        engine = ActionEngine(agent_path, actions_list=[])
+        engine = ActionEngine(load_agent_config(agent_path), actions_list=[])
         prompt = engine.get_system_prompt()
         assert "Support Bot" in prompt
         assert "Helps users" in prompt

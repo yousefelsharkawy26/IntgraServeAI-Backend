@@ -36,8 +36,16 @@ logger = CorrelationIdAdapter(logging.getLogger(__name__))
 class ActionEngine:
     ALLOWED_PROTO_DIR: str = os.path.abspath(BASE_DIR / "protos")
 
-    def __init__(self, agent_config_path: str, actions_list: list):
-        self.agent_config: AgentConfiguration = self._load_agent_config(agent_config_path)
+    def __init__(self, agent_config: AgentConfiguration | Dict[str, Any], actions_list: list):
+        try:
+            self.agent_config = (
+                agent_config
+                if isinstance(agent_config, AgentConfiguration)
+                else AgentConfiguration.model_validate(agent_config)
+            )
+        except ValidationError as exc:
+            self._handle_validation_error(exc, "Agent Config Validation Failed")
+
         if not isinstance(actions_list, list):
             raise InvalidActionStructure("Actions list must be a list of objects")
         self.actions: List[ActionDefinition] = self._parse_actions_list(actions_list)
@@ -104,22 +112,6 @@ class ActionEngine:
                     )
         except socket.gaierror as e:
             raise SSRFVulnerabilityError(f"Unable to resolve hostname '{hostname}': {e}")
-
-    def _load_agent_config(self, path: str) -> AgentConfiguration:
-        try:
-            with open(path, "r") as f:
-                data = json.load(f)
-                return AgentConfiguration(**data)
-        except FileNotFoundError:
-            raise ParsingException(f"Agent config file not found at {path}")
-        except json.JSONDecodeError as e:
-            raise ParsingException(f"Invalid JSON in agent config: {e}")
-        except ActionEngineException as e:
-            raise e
-        except ValidationError as e:
-            self._handle_validation_error(e, "Agent Config Validation Failed")
-        except Exception as e:
-            raise ParsingException(f"Unexpected error loading agent config: {e}")
 
     def _parse_actions_list(self, actions_list: List[Dict]) -> List[ActionDefinition]:
         actions = []

@@ -21,6 +21,7 @@ Markers: integration, slow
 
 import pytest
 
+from tests.agent_config_test_utils import load_agent_config
 from ai_engine.action_engine import ActionEngine
 from utils.exceptions import BodyParamOnGetRequest, ExecutionException
 
@@ -93,7 +94,7 @@ class TestGetWithPathParams:
                 "template": "Status: {{status}}, Delivery: {{delivery}}, Total: {{total}}"
             }
         }]
-        engine = ActionEngine(api_agent_config, actions_list=actions)
+        engine = ActionEngine(load_agent_config(api_agent_config), actions_list=actions)
         result = await engine.execute_action_directly("get_order_details", {"order_id": "ORD-123"})
         assert "shipped" in result
         assert "129.99" in result
@@ -134,7 +135,7 @@ class TestGetWithQueryParams:
                 "template": "Open {{open}} to {{close}}"
             }
         }]
-        engine = ActionEngine(api_agent_config, actions_list=actions)
+        engine = ActionEngine(load_agent_config(api_agent_config), actions_list=actions)
         result = await engine.execute_action_directly("check_store_hours", {"city": "Los Angeles"})
         assert "10:00" in result
         assert "22:00" in result
@@ -168,7 +169,7 @@ class TestGetWithQueryParams:
                 "template": "Open {{open}} to {{close}}"
             }
         }]
-        engine = ActionEngine(api_agent_config, actions_list=actions)
+        engine = ActionEngine(load_agent_config(api_agent_config), actions_list=actions)
         result = await engine.execute_action_directly("check_store_hours", {})
         assert "09:00" in result
 
@@ -219,7 +220,7 @@ class TestPostWithBody:
                 "template": "Updated: {{code}}"
             }
         }]
-        engine = ActionEngine(api_agent_config, actions_list=actions)
+        engine = ActionEngine(load_agent_config(api_agent_config), actions_list=actions)
         result = await engine.execute_action_directly(
             "update_shipping_address",
             {"order_id": "ORD-999", "new_street": "123 Main St", "new_zip": "10001"}
@@ -252,7 +253,7 @@ class TestGetWithBodyRejection:
                 }
             }
         }]
-        engine = ActionEngine(api_agent_config, actions_list=actions)
+        engine = ActionEngine(load_agent_config(api_agent_config), actions_list=actions)
         with pytest.raises(BodyParamOnGetRequest):
             await engine.execute_action_directly("bad_get", {"data": "payload"})
 
@@ -281,7 +282,7 @@ class TestHeaderPropagation:
             "parameters": {},
             "response_config": {"mode": "raw"}
         }]
-        engine = ActionEngine(api_agent_config, actions_list=actions)
+        engine = ActionEngine(load_agent_config(api_agent_config), actions_list=actions)
         result = await engine.execute_action_directly("header_test", {})
         # The server returns JSON; we at least verify no crash and data flows.
         assert "shipped" in result
@@ -307,7 +308,7 @@ class TestAuthPropagation:
             "parameters": {},
             "response_config": {"mode": "raw"}
         }]
-        engine = ActionEngine(api_agent_config, actions_list=actions)
+        engine = ActionEngine(load_agent_config(api_agent_config), actions_list=actions)
         result = await engine.execute_action_directly("auth_test", {})
         # FastAPI /protected currently returns 200 regardless (auth is client-side in requests).
         # We verify the request was made successfully.
@@ -337,7 +338,7 @@ class TestTimeout:
                 "on_error": "Timed out: {{error}}"
             }
         }]
-        engine = ActionEngine(api_agent_config, actions_list=actions)
+        engine = ActionEngine(load_agent_config(api_agent_config), actions_list=actions)
         with pytest.raises(ExecutionException):
             result = await engine.execute_action_directly("slow_test", {})
             assert "Timed out" in result
@@ -365,7 +366,7 @@ class TestErrorHandling:
                 "on_error": "Not found: {{error}}"
             }
         }]
-        engine = ActionEngine(api_agent_config, actions_list=actions)
+        engine = ActionEngine(load_agent_config(api_agent_config), actions_list=actions)
         with pytest.raises(ExecutionException):
             result = await engine.execute_action_directly("err_404", {})
             assert "Not found" in result
@@ -386,7 +387,7 @@ class TestErrorHandling:
                 "on_error": "Server error: {{error}}"
             }
         }]
-        engine = ActionEngine(api_agent_config, actions_list=actions)
+        engine = ActionEngine(load_agent_config(api_agent_config), actions_list=actions)
         with pytest.raises(ExecutionException):
             result = await engine.execute_action_directly("err_500", {})
             assert "Server error" in result
@@ -404,7 +405,7 @@ class TestErrorHandling:
             "parameters": {},
             "response_config": {"mode": "raw"}
         }]
-        engine = ActionEngine(api_agent_config, actions_list=actions)
+        engine = ActionEngine(load_agent_config(api_agent_config), actions_list=actions)
         result = await engine.execute_action_directly("text_test", {})
         assert "Plain text response body" in result
 
@@ -425,7 +426,7 @@ class TestErrorHandling:
             }
         }]
 
-        engine = ActionEngine(api_agent_config, actions_list=actions)
+        engine = ActionEngine(load_agent_config(api_agent_config), actions_list=actions)
 
         with pytest.raises(ExecutionException):
             result = await engine.execute_action_directly("conn_fail", {})

@@ -7,6 +7,9 @@ from models.system import SystemType, ActionProtocol, SystemAction, ActionExecut
 from models.auth import ApiAuthType, ApiAuthentication
 from models.audit import AuditLog
 from models.action import Action
+from models.agent_config import (
+    AgentConfig, AgentLLMConfig, AgentActionDefault, AgentPrompt, AgentConfigSnapshot,
+)
 
 __all__ = [
     # Base
@@ -44,4 +47,9 @@ __all__ = [
     # Audit
     'AuditLog',
     'Action',
+    'AgentConfig',
+    'AgentLLMConfig',
+    'AgentActionDefault',
+    'AgentPrompt',
+    'AgentConfigSnapshot',
 ]

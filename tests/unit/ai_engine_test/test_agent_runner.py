@@ -19,6 +19,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from ai_engine.agent_runner import AgentRunner
+from tests.agent_config_test_utils import load_agent_config
 from ai_engine.action_engine import ActionEngine
 from utils.exceptions import (
     ParsingException
@@ -178,7 +179,7 @@ def runner_with_tools(runner_agent_config, mock_requests):
             "requires_confirmation": True
         }
     ]
-    engine = ActionEngine(runner_agent_config, actions_list=actions)
+    engine = ActionEngine(load_agent_config(runner_agent_config), actions_list=actions)
     runner = AgentRunner(engine)
     return runner
 
@@ -186,7 +187,7 @@ def runner_with_tools(runner_agent_config, mock_requests):
 @pytest.fixture
 def runner_no_tools(runner_agent_config):
     """AgentRunner with no tools."""
-    engine = ActionEngine(runner_agent_config, actions_list=[])
+    engine = ActionEngine(load_agent_config(runner_agent_config), actions_list=[])
     runner = AgentRunner(engine)
     return runner
 
@@ -201,7 +202,7 @@ def runner_internal_only(runner_agent_config):
         "active": True,
         "requires_confirmation": False
     }]
-    engine = ActionEngine(runner_agent_config, actions_list=actions)
+    engine = ActionEngine(load_agent_config(runner_agent_config), actions_list=actions)
     runner = AgentRunner(engine)
     return runner
 
@@ -218,7 +219,7 @@ class TestInitialization:
             "system_context": {"title": "T", "description": "D", "version": "1", "tone": "neutral"},
             "global_defaults": {}
         }, "agent.json")
-        engine = ActionEngine(agent_path, actions_list=[])
+        engine = ActionEngine(load_agent_config(agent_path), actions_list=[])
         with pytest.raises(ParsingException) as exc_info:
             AgentRunner(engine)
         assert "llm_config" in str(exc_info.value)
@@ -393,7 +394,7 @@ class TestInternalHandler:
             "active": True,
             "requires_confirmation": False
         }]
-        engine = ActionEngine(runner_agent_config, actions_list=actions)
+        engine = ActionEngine(load_agent_config(runner_agent_config), actions_list=actions)
         runner = AgentRunner(engine, internal_handler=sync_handler)
 
         from .fixtures.mock_llm import FakeLLM, make_tool_call_chunks
@@ -428,7 +429,7 @@ class TestInternalHandler:
             "active": True,
             "requires_confirmation": False
         }]
-        engine = ActionEngine(runner_agent_config, actions_list=actions)
+        engine = ActionEngine(load_agent_config(runner_agent_config), actions_list=actions)
         runner = AgentRunner(engine, internal_handler=async_handler)
 
         from .fixtures.mock_llm import FakeLLM, make_tool_call_chunks
@@ -597,7 +598,7 @@ class TestRateLimiting:
                 "rate_limit_delay_seconds": 1
             }
         }, "agent.json")
-        engine = ActionEngine(agent_path, actions_list=[])
+        engine = ActionEngine(load_agent_config(agent_path), actions_list=[])
         runner = AgentRunner(engine)
 
         from .fixtures.mock_llm import FakeLLM, make_text_chunks
@@ -767,7 +768,7 @@ class TestRealLLMIntegration:
                 return f"Hello, {args.get('name', 'user')}!"
             return f"Handled {name}"
         
-        engine = ActionEngine(agent_path, actions_list=actions)
+        engine = ActionEngine(load_agent_config(agent_path), actions_list=actions)
         runner = AgentRunner(engine, internal_handler=internal_handler)
         return runner
 

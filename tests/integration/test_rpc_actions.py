@@ -19,6 +19,7 @@ Markers: integration, slow
 
 import pytest
 
+from tests.agent_config_test_utils import load_agent_config
 from ai_engine.action_engine import ActionEngine
 from utils.exceptions import (
     ProtoNotFound, ServiceNotFound, MethodNotFound
@@ -71,7 +72,7 @@ class TestProtoCompilation:
     """
 
     def test_compile_valid_proto(self, rpc_agent_config, grpc_test_proto_dir):
-        engine = ActionEngine(rpc_agent_config, actions_list=[])
+        engine = ActionEngine(load_agent_config(rpc_agent_config), actions_list=[])
         proto_path = str(grpc_test_proto_dir / "payment.proto")
         pb2, pb2_grpc = engine._compile_and_load_proto(proto_path)
         assert pb2 is not None
@@ -79,12 +80,12 @@ class TestProtoCompilation:
         assert hasattr(pb2_grpc, "PaymentServiceStub")
 
     def test_missing_proto_raises(self, rpc_agent_config):
-        engine = ActionEngine(rpc_agent_config, actions_list=[])
+        engine = ActionEngine(load_agent_config(rpc_agent_config), actions_list=[])
         with pytest.raises(ProtoNotFound):
             engine._compile_and_load_proto("/nonexistent/file.proto")
 
     def test_module_caching(self, rpc_agent_config, grpc_test_proto_dir):
-        engine = ActionEngine(rpc_agent_config, actions_list=[])
+        engine = ActionEngine(load_agent_config(rpc_agent_config), actions_list=[])
         proto_path = str(grpc_test_proto_dir / "payment.proto")
         pb2_1, pb2_grpc_1 = engine._compile_and_load_proto(proto_path)
         pb2_2, pb2_grpc_2 = engine._compile_and_load_proto(proto_path)
@@ -119,7 +120,7 @@ class TestServiceMethodResolution:
                 }
             }
         }]
-        engine = ActionEngine(rpc_agent_config, actions_list=actions)
+        engine = ActionEngine(load_agent_config(rpc_agent_config), actions_list=actions)
         with pytest.raises(ServiceNotFound) as exc_info:
             await engine.execute_action_directly("bad_service", {"transaction_id": "TX-1"})
         assert "NonExistentService" in str(exc_info.value)
@@ -145,7 +146,7 @@ class TestServiceMethodResolution:
                 }
             }
         }]
-        engine = ActionEngine(rpc_agent_config, actions_list=actions)
+        engine = ActionEngine(load_agent_config(rpc_agent_config), actions_list=actions)
         with pytest.raises(MethodNotFound) as exc_info:
             await engine.execute_action_directly("bad_method", {"transaction_id": "TX-1"})
         assert "NonExistentMethod" in str(exc_info.value)
@@ -196,7 +197,7 @@ class TestFullRpcCall:
                 "template": "Status: {{status}}, Amount: {{amount}}"
             }
         }]
-        engine = ActionEngine(rpc_agent_config, actions_list=actions)
+        engine = ActionEngine(load_agent_config(rpc_agent_config), actions_list=actions)
         result = await engine.execute_action_directly(
             "process_refund_request",
             {"transaction_id": "TX-999", "reason_code": "CUSTOMER_REQUEST"}
@@ -231,7 +232,7 @@ class TestFullRpcCall:
                 "on_error": "RPC failed: {{error}}"
             }
         }]
-        engine = ActionEngine(rpc_agent_config, actions_list=actions)
+        engine = ActionEngine(load_agent_config(rpc_agent_config), actions_list=actions)
         result = await engine.execute_action_directly("refund_no_auth", {"transaction_id": "TX-1"})
         assert "RPC failed" in result
 
@@ -263,6 +264,6 @@ class TestFullRpcCall:
                 "on_error": "Timeout: {{error}}"
             }
         }]
-        engine = ActionEngine(rpc_agent_config, actions_list=actions)
+        engine = ActionEngine(load_agent_config(rpc_agent_config), actions_list=actions)
         result = await engine.execute_action_directly("refund_timeout", {"transaction_id": "TX-1"})
         assert "Timeout" in result or "PENDING" in result or "RPC failed" in result

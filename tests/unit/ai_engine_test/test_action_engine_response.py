@@ -1,5 +1,6 @@
 import pytest
 
+from tests.agent_config_test_utils import load_agent_config
 from ai_engine.action_engine import ActionEngine
 from ai_engine.config import ResponseConfig, ResponseValue
 
@@ -14,7 +15,7 @@ def minimal_agent_path(write_temp_json):
 
 class TestResponseParsing:
     def test_jsonpath_extraction(self, minimal_agent_path):
-        engine = ActionEngine(minimal_agent_path, actions_list=[])
+        engine = ActionEngine(load_agent_config(minimal_agent_path), actions_list=[])
         config = ResponseConfig(
             mode="json",
             values={
@@ -35,7 +36,7 @@ class TestResponseParsing:
         assert result == "Status: shipped, Total: 99.99"
 
     def test_missing_jsonpath_returns_na(self, minimal_agent_path):
-        engine = ActionEngine(minimal_agent_path, actions_list=[])
+        engine = ActionEngine(load_agent_config(minimal_agent_path), actions_list=[])
         config = ResponseConfig(
             mode="json",
             values={
@@ -47,14 +48,14 @@ class TestResponseParsing:
         assert "N/A" in result
 
     def test_raw_mode_returns_string(self, minimal_agent_path):
-        engine = ActionEngine(minimal_agent_path, actions_list=[])
+        engine = ActionEngine(load_agent_config(minimal_agent_path), actions_list=[])
         config = ResponseConfig(mode="raw")
         data = {"key": "value"}
         result = engine._parse_response(data, config)
         assert result == str(data)
 
     def test_template_with_value_placeholder_dict(self, minimal_agent_path):
-        engine = ActionEngine(minimal_agent_path, actions_list=[])
+        engine = ActionEngine(load_agent_config(minimal_agent_path), actions_list=[])
         config = ResponseConfig(
             mode="json",
             template="Raw: {{value}}"
@@ -65,7 +66,7 @@ class TestResponseParsing:
         assert '"key": "value"' in result
 
     def test_template_with_value_placeholder_str(self, minimal_agent_path):
-        engine = ActionEngine(minimal_agent_path, actions_list=[])
+        engine = ActionEngine(load_agent_config(minimal_agent_path), actions_list=[])
         config = ResponseConfig(
             mode="raw",
             template="Data: {{value}}"
@@ -74,12 +75,12 @@ class TestResponseParsing:
         assert result == "Data: plain text"
 
     def test_no_config_returns_str(self, minimal_agent_path):
-        engine = ActionEngine(minimal_agent_path, actions_list=[])
+        engine = ActionEngine(load_agent_config(minimal_agent_path), actions_list=[])
         result = engine._parse_response({"a": 1}, None)
         assert result == str({"a": 1})
 
     def test_bad_jsonpath_returns_error_parsing(self, minimal_agent_path):
-        engine = ActionEngine(minimal_agent_path, actions_list=[])
+        engine = ActionEngine(load_agent_config(minimal_agent_path), actions_list=[])
         config = ResponseConfig(
             mode="json",
             values={
@@ -91,13 +92,13 @@ class TestResponseParsing:
         assert "ErrorParsing" in result
 
     def test_no_template_returns_str(self, minimal_agent_path):
-        engine = ActionEngine(minimal_agent_path, actions_list=[])
+        engine = ActionEngine(load_agent_config(minimal_agent_path), actions_list=[])
         config = ResponseConfig(mode="json", values={"x": ResponseValue(type="string", path="y")})
         result = engine._parse_response({"y": "z"}, config)
         assert result == str({"y": "z"})
 
     def test_multiple_substitutions(self, minimal_agent_path):
-        engine = ActionEngine(minimal_agent_path, actions_list=[])
+        engine = ActionEngine(load_agent_config(minimal_agent_path), actions_list=[])
         config = ResponseConfig(
             mode="json",
             values={
@@ -110,7 +111,7 @@ class TestResponseParsing:
         assert result == "A=1, B=2"
 
     def test_nested_jsonpath_array(self, minimal_agent_path):
-        engine = ActionEngine(minimal_agent_path, actions_list=[])
+        engine = ActionEngine(load_agent_config(minimal_agent_path), actions_list=[])
         config = ResponseConfig(
             mode="json",
             values={

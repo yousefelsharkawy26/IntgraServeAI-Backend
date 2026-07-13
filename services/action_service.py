@@ -327,11 +327,15 @@ class ActionService:
 
         if AIGatewayService.has_cached_engine():
             rows = await self.repository.list()
-            AIGatewayService.configure_engine([
-                row.to_dict(include_id=False, include_engine_fields=True)
-                | {"_backend_id": row.id}
-                for row in rows
-            ])
+            current_config = AIGatewayService.get_engine().agent_config.model_dump(mode="json")
+            AIGatewayService.configure_engine(
+                current_config,
+                [
+                    row.to_dict(include_id=False, include_engine_fields=True)
+                    | {"_backend_id": row.id}
+                    for row in rows
+                ],
+            )
 
     @staticmethod
     def _response(action: Action) -> ActionResponse:
