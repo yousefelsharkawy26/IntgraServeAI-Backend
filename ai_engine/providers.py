@@ -15,6 +15,7 @@ logger = CorrelationIdAdapter(logging.getLogger(__name__))
 
 
 class BaseProvider(ABC):
+    display_name: str = ""
     env_key_name: str = ""
     requires_api_key_for_remote: bool = True
 
@@ -74,6 +75,7 @@ class BaseProvider(ABC):
 
 
 class OpenAIProvider(BaseProvider):
+    display_name = "OpenAI"
     env_key_name = "OPENAI_API_KEY"
 
     def get_llm(self, config: LLMConfig) -> BaseChatModel:
@@ -97,6 +99,7 @@ class OpenAIProvider(BaseProvider):
 
 
 class GroqProvider(BaseProvider):
+    display_name = "Groq"
     env_key_name = "GROQ_API_KEY"
 
     def get_llm(self, config: LLMConfig) -> BaseChatModel:
@@ -114,6 +117,7 @@ class GroqProvider(BaseProvider):
 
 
 class OllamaProvider(BaseProvider):
+    display_name = "Ollama"
     # Ollama typically does not require an API key even for remote servers 
     # unless you have a custom auth proxy in front of it.
     requires_api_key_for_remote = False
@@ -148,6 +152,7 @@ class OllamaProvider(BaseProvider):
 
 
 class GoogleProvider(BaseProvider):
+    display_name = "Google Gemini"
     env_key_name = "GOOGLE_API_KEY"
 
     def get_llm(self, config: LLMConfig) -> BaseChatModel:
@@ -170,6 +175,7 @@ class GoogleProvider(BaseProvider):
 
 
 class HuggingFaceProvider(BaseProvider):
+    display_name = "Hugging Face"
     env_key_name = "HUGGINGFACEHUB_API_TOKEN"
 
     @staticmethod
@@ -240,14 +246,30 @@ class ModelFactory:
         return cls._instances[name]
 
     @classmethod
-    def get_llm(cls, config: LLMConfig) -> BaseChatModel:
+    def get_supported_providers(cls) -> list[dict[str, str]]:
+        """Return provider metadata from the runtime provider registry."""
+        return [
+            {
+                "id": provider_id,
+                "name": provider_class.display_name or provider_id.replace("_", " ").title(),
+            }
+            for provider_id, provider_class in cls._providers.items()
+        ]
+
+    @classmethod
+    def validate_llm_config(cls, config: LLMConfig) -> None:
+        """Run the same provider/key validation used before instantiation."""
         provider_name = config.provider.lower()
         if provider_name not in cls._providers:
             raise ProviderConfigurationError(
                 f"Unsupported LLM Provider '{provider_name}'. "
                 f"Supported: {list(cls._providers.keys())}"
             )
-        
+        cls._get_provider(provider_name)._validate_llm_config(config)
+
+    @classmethod
+    def get_llm(cls, config: LLMConfig) -> BaseChatModel:
+        cls.validate_llm_config(config)
         provider = cls._get_provider(config.provider.lower())
         return provider.get_llm(config)
 

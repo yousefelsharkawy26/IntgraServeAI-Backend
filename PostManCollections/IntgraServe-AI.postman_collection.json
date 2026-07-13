@@ -3495,7 +3495,7 @@
                             "    pm.response.to.have.status(200);",
                             "    const jsonData = pm.response.json();",
                             "    pm.expect(jsonData).to.have.property('system_context');",
-                            "    pm.expect(jsonData).to.have.property('llm_config');",
+                            "    pm.expect(jsonData).to.have.property('llm_config_id');",
                             "    pm.expect(jsonData).to.have.property('metadata');",
                             "});",
                             "console.log(\"✅ Full config loaded. Last updated by:\", pm.response.json().metadata.updated_by);"
@@ -3543,7 +3543,7 @@
                 "header": [],
                 "body": {
                     "mode": "raw",
-                    "raw": "{\n  \"system_context\": {\n    \"title\": \"ShopEasy Customer Support Agent\",\n    \"description\": \"You are the primary AI support agent for ShopEasy.\",\n    \"version\": \"2.1.0\",\n    \"tone\": \"Warm, professional, and efficient.\"\n  },\n  \"llm_config\": {\n    \"location\": \"local\",\n    \"provider\": \"google\",\n    \"model_name\": \"gemini-2.5-flash\",\n    \"rate_limit_delay_seconds\": 0,\n    \"temperature\": 0.1,\n    \"max_tokens\": 2048,\n    \"local_loading_params\": {\n      \"base_url\": \"http://localhost:11434/v1\",\n      \"gguf_file\": \"Qwen3.5-9B.Q4_K_S.gguf\",\n      \"context_window\": 16384,\n      \"gpu_layers\": 35,\n      \"quantization\": \"int4\"\n    },\n    \"system_prompt_template\": \"IDENTITY: {{title}}\\nROLE: {{description}}\"\n  }\n}",
+                    "raw": "{\n  \"system_context\": {\n    \"title\": \"ShopEasy Customer Support Agent\",\n    \"description\": \"You are the primary AI support agent for ShopEasy.\",\n    \"version\": \"2.1.0\",\n    \"tone\": \"Warm, professional, and efficient.\"\n  },\n  \"global_defaults\": {},\n  \"llm_config_id\": \"{{llm_config_id}}\"\n}",
                     "options": {
                         "raw": {
                             "language": "json"
@@ -3563,6 +3563,131 @@
                 }
             },
             "response": []
+        },
+        {
+            "name": "List Agent Configuration Backups",
+            "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                    "raw": "{{base_url}}/api/v1/agent-config/backups",
+                    "host": [
+                        "{{base_url}}"
+                    ],
+                    "path": [
+                        "api",
+                        "v1",
+                        "agent-config",
+                        "backups"
+                    ]
+                }
+            },
+            "response": []
+        },
+        {
+            "name": "Create Agent Configuration Backup",
+            "event": [
+                {
+                    "listen": "test",
+                    "script": {
+                        "exec": [
+                            "pm.test(\"Backup created\", () => pm.response.to.have.status(201));",
+                            "pm.environment.set(\"agent_config_backup_id\", pm.response.json().id);"
+                        ],
+                        "type": "text/javascript"
+                    }
+                }
+            ],
+            "request": {
+                "method": "POST",
+                "header": [],
+                "body": {
+                    "mode": "raw",
+                    "raw": "{\n  \"name\": \"Before model change\"\n}",
+                    "options": {
+                        "raw": {
+                            "language": "json"
+                        }
+                    }
+                },
+                "url": {
+                    "raw": "{{base_url}}/api/v1/agent-config/backups",
+                    "host": [
+                        "{{base_url}}"
+                    ],
+                    "path": [
+                        "api",
+                        "v1",
+                        "agent-config",
+                        "backups"
+                    ]
+                }
+            },
+            "response": []
+        },
+        {
+            "name": "Get Agent Configuration Backup",
+            "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                    "raw": "{{base_url}}/api/v1/agent-config/backups/{{agent_config_backup_id}}",
+                    "host": [
+                        "{{base_url}}"
+                    ],
+                    "path": [
+                        "api",
+                        "v1",
+                        "agent-config",
+                        "backups",
+                        "{{agent_config_backup_id}}"
+                    ]
+                }
+            },
+            "response": []
+        },
+        {
+            "name": "Restore Agent Configuration Backup",
+            "request": {
+                "method": "POST",
+                "header": [],
+                "url": {
+                    "raw": "{{base_url}}/api/v1/agent-config/backups/{{agent_config_backup_id}}/restore",
+                    "host": [
+                        "{{base_url}}"
+                    ],
+                    "path": [
+                        "api",
+                        "v1",
+                        "agent-config",
+                        "backups",
+                        "{{agent_config_backup_id}}",
+                        "restore"
+                    ]
+                }
+            },
+            "response": []
+        },
+        {
+            "name": "Delete Agent Configuration Backup",
+            "request": {
+                "method": "DELETE",
+                "header": [],
+                "url": {
+                    "raw": "{{base_url}}/api/v1/agent-config/backups/{{agent_config_backup_id}}",
+                    "host": [
+                        "{{base_url}}"
+                    ],
+                    "path": [
+                        "api",
+                        "v1",
+                        "agent-config",
+                        "backups",
+                        "{{agent_config_backup_id}}"
+                    ]
+                }
+            },
+            "response": []
         }
     ],
     "auth": {
@@ -3576,6 +3701,199 @@
         ]
     },
     "description": "API endpoints for managing the AI Agent's core configuration, matching the Swagger documentation."
+},
+{
+    "name": "LLM Configurations",
+    "item": [
+        {
+            "name": "Discover Providers",
+            "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                    "raw": "{{base_url}}/api/v1/llm-configs/providers",
+                    "host": [
+                        "{{base_url}}"
+                    ],
+                    "path": [
+                        "api",
+                        "v1",
+                        "llm-configs",
+                        "providers"
+                    ]
+                }
+            },
+            "response": []
+        },
+        {
+            "name": "List LLM Configurations",
+            "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                    "raw": "{{base_url}}/api/v1/llm-configs",
+                    "host": [
+                        "{{base_url}}"
+                    ],
+                    "path": [
+                        "api",
+                        "v1",
+                        "llm-configs"
+                    ]
+                }
+            },
+            "response": []
+        },
+        {
+            "name": "Create LLM Configuration",
+            "event": [
+                {
+                    "listen": "test",
+                    "script": {
+                        "exec": [
+                            "pm.test(\"LLM config created\", () => pm.response.to.have.status(201));",
+                            "pm.environment.set(\"llm_config_id\", pm.response.json().id);"
+                        ],
+                        "type": "text/javascript"
+                    }
+                }
+            ],
+            "request": {
+                "method": "POST",
+                "header": [],
+                "body": {
+                    "mode": "raw",
+                    "raw": "{\n  \"name\": \"Local Ollama\",\n  \"provider\": \"ollama\",\n  \"location\": \"local\",\n  \"model_name\": \"llama3\",\n  \"temperature\": 0.2,\n  \"max_tokens\": 2048,\n  \"system_prompt_template\": \"{{description}}\",\n  \"active\": true,\n  \"config_json\": {\n    \"local_loading_params\": {\n      \"base_url\": \"http://localhost:11434\"\n    }\n  }\n}",
+                    "options": {
+                        "raw": {
+                            "language": "json"
+                        }
+                    }
+                },
+                "url": {
+                    "raw": "{{base_url}}/api/v1/llm-configs",
+                    "host": [
+                        "{{base_url}}"
+                    ],
+                    "path": [
+                        "api",
+                        "v1",
+                        "llm-configs"
+                    ]
+                }
+            },
+            "response": []
+        },
+        {
+            "name": "Get LLM Configuration",
+            "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                    "raw": "{{base_url}}/api/v1/llm-configs/{{llm_config_id}}",
+                    "host": [
+                        "{{base_url}}"
+                    ],
+                    "path": [
+                        "api",
+                        "v1",
+                        "llm-configs",
+                        "{{llm_config_id}}"
+                    ]
+                }
+            },
+            "response": []
+        },
+        {
+            "name": "Replace LLM Configuration",
+            "request": {
+                "method": "PUT",
+                "header": [],
+                "body": {
+                    "mode": "raw",
+                    "raw": "{\n  \"name\": \"Local Ollama\",\n  \"provider\": \"ollama\",\n  \"location\": \"local\",\n  \"model_name\": \"llama3\",\n  \"temperature\": 0.1,\n  \"max_tokens\": 4096,\n  \"system_prompt_template\": \"{{description}}\",\n  \"active\": true,\n  \"config_json\": {\n    \"local_loading_params\": {\n      \"base_url\": \"http://localhost:11434\"\n    }\n  }\n}",
+                    "options": {
+                        "raw": {
+                            "language": "json"
+                        }
+                    }
+                },
+                "url": {
+                    "raw": "{{base_url}}/api/v1/llm-configs/{{llm_config_id}}",
+                    "host": [
+                        "{{base_url}}"
+                    ],
+                    "path": [
+                        "api",
+                        "v1",
+                        "llm-configs",
+                        "{{llm_config_id}}"
+                    ]
+                }
+            },
+            "response": []
+        },
+        {
+            "name": "Patch LLM Configuration",
+            "request": {
+                "method": "PATCH",
+                "header": [],
+                "body": {
+                    "mode": "raw",
+                    "raw": "{\n  \"temperature\": 0.3\n}",
+                    "options": {
+                        "raw": {
+                            "language": "json"
+                        }
+                    }
+                },
+                "url": {
+                    "raw": "{{base_url}}/api/v1/llm-configs/{{llm_config_id}}",
+                    "host": [
+                        "{{base_url}}"
+                    ],
+                    "path": [
+                        "api",
+                        "v1",
+                        "llm-configs",
+                        "{{llm_config_id}}"
+                    ]
+                }
+            },
+            "response": []
+        },
+        {
+            "name": "Delete LLM Configuration",
+            "request": {
+                "method": "DELETE",
+                "header": [],
+                "url": {
+                    "raw": "{{base_url}}/api/v1/llm-configs/{{llm_config_id}}",
+                    "host": [
+                        "{{base_url}}"
+                    ],
+                    "path": [
+                        "api",
+                        "v1",
+                        "llm-configs",
+                        "{{llm_config_id}}"
+                    ]
+                }
+            },
+            "response": []
+        }
+    ],
+    "auth": {
+        "type": "bearer",
+        "bearer": [
+            {
+                "key": "token",
+                "value": "{{access_token}}",
+                "type": "string"
+            }
+        ]
+    },
+    "description": "Reusable LLM configurations backed by the existing ModelFactory provider registry."
 }
 	],
 	"variable": [

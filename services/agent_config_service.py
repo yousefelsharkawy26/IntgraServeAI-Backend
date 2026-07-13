@@ -5,6 +5,7 @@ from pydantic import ValidationError
 
 from repositories.action_repository import ActionRepository
 from repositories.agent_config_repository import AgentConfigRepository
+from repositories.llm_config_repository import LLMConfigRepository
 from services.ai_gateway_service import AIGatewayService
 from utils.agent_config_mapper import AgentConfigMapper
 from utils.exceptions import BadRequestException, NotFoundException
@@ -35,10 +36,18 @@ class AgentConfigService:
 
     async def update_full_config(self, config_data: Dict[str, Any], updated_by: UUID) -> None:
         validated = self._validate(config_data)
+        llm_config_id = UUID(str(validated["llm_config_id"]))
+        llm_config = await LLMConfigRepository(self.repository.session).get_by_id(llm_config_id)
+        if llm_config is None:
+            raise NotFoundException(f"LLM configuration '{llm_config_id}' not found")
+        if not llm_config.active:
+            raise BadRequestException("The selected LLM configuration is inactive")
+
         agent = await self._active_agent()
         agent = await self.repository.save_full_config(
             agent,
             validated,
+            llm_config_id=llm_config_id,
             updated_by=updated_by,
         )
         await self._refresh_engine(agent)

@@ -5,11 +5,11 @@ from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from models.agent_config import AgentActionDefault, AgentConfig, AgentLLMConfig, AgentPrompt
+from models.agent_config import AgentActionDefault, AgentConfig, AgentPrompt
 
 
 class AgentConfigRepository:
-    """SQLAlchemy persistence boundary for agent configuration."""
+    """Persistence boundary for normalized agent configuration."""
 
     def __init__(self, session: AsyncSession):
         self.session = session
@@ -17,7 +17,7 @@ class AgentConfigRepository:
     @staticmethod
     def _graph_options():
         return (
-            selectinload(AgentConfig.llm_configs),
+            selectinload(AgentConfig.llm_config),
             selectinload(AgentConfig.action_defaults),
             selectinload(AgentConfig.prompts),
         )
@@ -32,10 +32,19 @@ class AgentConfigRepository:
         )
         return result.scalar_one_or_none()
 
+    async def get_by_id(self, agent_config_id: UUID) -> Optional[AgentConfig]:
+        result = await self.session.execute(
+            select(AgentConfig)
+            .options(*self._graph_options())
+            .where(AgentConfig.id == agent_config_id)
+        )
+        return result.scalar_one_or_none()
+
     async def save_full_config(
         self,
         agent: AgentConfig,
         config: dict[str, Any],
+        llm_config_id: UUID,
         updated_by: Optional[UUID] = None,
     ) -> AgentConfig:
         system = config["system_context"]
@@ -43,66 +52,52 @@ class AgentConfigRepository:
         agent.description = system["description"]
         agent.tone = system["tone"]
         agent.version = system["version"]
+        agent.llm_config_id = llm_config_id
         agent.updated_by_id = updated_by
 
-        await self._save_llm(agent, config["llm_config"])
         await self._replace_action_defaults(agent, config.get("global_defaults") or {})
         await self._save_prompt_version(agent, system["description"])
         await self.session.flush()
         await self.session.refresh(
             agent,
-            attribute_names=["llm_configs", "action_defaults", "prompts"],
+            attribute_names=["llm_config", "action_defaults", "prompts"],
         )
         return agent
 
-    async def _save_llm(self, agent: AgentConfig, llm_data: dict[str, Any]) -> None:
+    async def replace_action_defaults(self, agent: AgentConfig, defaults: dict[str, Any]) -> None:
+        await self._replace_action_defaults(agent, defaults)
+
+    async def restore_prompt(self, agent: AgentConfig, prompt: dict[str, Any]) -> None:
         await self.session.execute(
-            update(AgentLLMConfig)
-            .where(AgentLLMConfig.agent_config_id == agent.id)
+            update(AgentPrompt)
+            .where(AgentPrompt.agent_config_id == agent.id)
             .values(active=False)
         )
-
-        provider = llm_data["provider"]
-        location = llm_data.get("location", "remote")
-        model_name = llm_data["model_name"]
-        result = await self.session.execute(
-            select(AgentLLMConfig).where(
-                AgentLLMConfig.agent_config_id == agent.id,
-                AgentLLMConfig.provider == provider,
-                AgentLLMConfig.location == location,
-                AgentLLMConfig.model_name == model_name,
+        existing_result = await self.session.execute(
+            select(AgentPrompt).where(
+                AgentPrompt.agent_config_id == agent.id,
+                AgentPrompt.name == prompt["name"],
+                AgentPrompt.version == prompt["version"],
             )
         )
-        row = result.scalar_one_or_none()
+        row = existing_result.scalar_one_or_none()
         if row is None:
-            row = AgentLLMConfig(
+            max_result = await self.session.execute(
+                select(func.max(AgentPrompt.version)).where(AgentPrompt.agent_config_id == agent.id)
+            )
+            row = AgentPrompt(
                 agent_config_id=agent.id,
-                provider=provider,
-                location=location,
-                model_name=model_name,
+                name=prompt["name"],
+                content=prompt["content"],
+                version=max(prompt["version"], (max_result.scalar() or 0) + 1),
+                active=True,
             )
             self.session.add(row)
-
-        known = {
-            "provider", "location", "model_name", "temperature", "max_tokens",
-            "api_key", "api_key_reference", "system_prompt_template", "active",
-        }
-        row.temperature = llm_data.get("temperature", 0.7)
-        row.max_tokens = llm_data.get("max_tokens", 2048)
-        row.api_key_reference = self._api_key_reference(llm_data)
-        row.system_prompt_template = llm_data.get("system_prompt_template", "")
-        row.config_json = {key: value for key, value in llm_data.items() if key not in known}
-        row.active = True
-
-    @staticmethod
-    def _api_key_reference(llm_data: dict[str, Any]) -> Optional[str]:
-        explicit = llm_data.get("api_key_reference")
-        if explicit:
-            return explicit
-        value = llm_data.get("api_key")
-        if isinstance(value, str) and value.startswith("{{env.") and value.endswith("}}"):
-            return value[6:-2]
-        return None
+        else:
+            row.content = prompt["content"]
+            row.active = True
+        agent.description = prompt["content"]
+        await self.session.flush()
 
     async def _replace_action_defaults(self, agent: AgentConfig, defaults: dict[str, Any]) -> None:
         await self.session.execute(
@@ -136,13 +131,12 @@ class AgentConfigRepository:
         version_result = await self.session.execute(
             select(func.max(AgentPrompt.version)).where(AgentPrompt.agent_config_id == agent.id)
         )
-        next_version = (version_result.scalar() or 0) + 1
         self.session.add(
             AgentPrompt(
                 agent_config_id=agent.id,
                 name="system",
                 content=content,
-                version=next_version,
+                version=(version_result.scalar() or 0) + 1,
                 active=True,
             )
         )
