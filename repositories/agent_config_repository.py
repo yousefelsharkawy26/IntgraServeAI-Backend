@@ -5,13 +5,7 @@ from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from models.agent_config import (
-    AgentActionDefault,
-    AgentConfig,
-    AgentConfigSnapshot,
-    AgentLLMConfig,
-    AgentPrompt,
-)
+from models.agent_config import AgentActionDefault, AgentConfig, AgentLLMConfig, AgentPrompt
 
 
 class AgentConfigRepository:
@@ -38,20 +32,11 @@ class AgentConfigRepository:
         )
         return result.scalar_one_or_none()
 
-    async def get_by_id(self, agent_config_id: UUID) -> Optional[AgentConfig]:
-        result = await self.session.execute(
-            select(AgentConfig)
-            .options(*self._graph_options())
-            .where(AgentConfig.id == agent_config_id)
-        )
-        return result.scalar_one_or_none()
-
     async def save_full_config(
         self,
         agent: AgentConfig,
         config: dict[str, Any],
         updated_by: Optional[UUID] = None,
-        restored_from: Optional[str] = None,
     ) -> AgentConfig:
         system = config["system_context"]
         agent.title = system["title"]
@@ -59,7 +44,6 @@ class AgentConfigRepository:
         agent.tone = system["tone"]
         agent.version = system["version"]
         agent.updated_by_id = updated_by
-        agent.restored_from = restored_from
 
         await self._save_llm(agent, config["llm_config"])
         await self._replace_action_defaults(agent, config.get("global_defaults") or {})
@@ -162,47 +146,3 @@ class AgentConfigRepository:
                 active=True,
             )
         )
-
-    async def create_snapshot(
-        self,
-        agent_config_id: UUID,
-        filename: str,
-        config: dict[str, Any],
-    ) -> AgentConfigSnapshot:
-        snapshot = AgentConfigSnapshot(
-            agent_config_id=agent_config_id,
-            filename=filename,
-            config_json=config,
-        )
-        self.session.add(snapshot)
-        await self.session.flush()
-        return snapshot
-
-    async def list_snapshots(self, agent_config_id: UUID) -> list[AgentConfigSnapshot]:
-        result = await self.session.execute(
-            select(AgentConfigSnapshot)
-            .where(AgentConfigSnapshot.agent_config_id == agent_config_id)
-            .order_by(AgentConfigSnapshot.created_at.desc())
-        )
-        return list(result.scalars().all())
-
-    async def get_snapshot(self, agent_config_id: UUID, filename: str) -> Optional[AgentConfigSnapshot]:
-        result = await self.session.execute(
-            select(AgentConfigSnapshot).where(
-                AgentConfigSnapshot.agent_config_id == agent_config_id,
-                AgentConfigSnapshot.filename == filename,
-            )
-        )
-        return result.scalar_one_or_none()
-
-    async def delete_snapshot(self, snapshot: AgentConfigSnapshot) -> None:
-        await self.session.delete(snapshot)
-        await self.session.flush()
-
-    async def delete_all_snapshots(self, agent_config_id: UUID) -> int:
-        result = await self.session.execute(
-            delete(AgentConfigSnapshot).where(
-                AgentConfigSnapshot.agent_config_id == agent_config_id
-            )
-        )
-        return result.rowcount or 0

@@ -1,7 +1,7 @@
 # utils/schemas/agent_config_schemas.py
 
 from pydantic import BaseModel, Field, HttpUrl, ConfigDict, model_validator, RootModel
-from typing import Optional, Dict, Any, Literal, List
+from typing import Optional, Dict, Any, Literal
 from uuid import UUID
 from datetime import datetime
 
@@ -93,40 +93,12 @@ class AgentConfig(RootModel[Dict[str, Any]]):
 class Metadata(BaseModel):
     last_updated: Optional[datetime] = None
     updated_by: Optional[UUID] = None
-    restored_from: Optional[str] = None
 
 class AgentConfigResponse(BaseModel):
     # This allows any key, mirroring the flexible structure
     model_config = ConfigDict(extra="allow")
     metadata: Metadata
 
-class ConfigSectionResponse(BaseModel):
-    section: str
-    content: Dict[str, Any]
 
-class ConfigUpdateResponse(BaseModel):
+class AgentConfigUpdateResponse(BaseModel):
     message: str
-    section: str
-    backup_created: Optional[str] = None
-
-class BackupInfo(BaseModel):
-    filename: str
-    created_at: datetime
-    size_kb: float
-
-class BackupListResponse(BaseModel):
-    total: int
-    backups: List[BackupInfo]
-
-class RestoreBackupResponse(BaseModel):
-    message: str
-    restored_from: str
-    backup_created: str
-
-class BackupDeleteResponse(BaseModel):
-    message: str
-    filename: str
-
-class BackupDeleteAllResponse(BaseModel):
-    message: str
-    deleted_count: int

@@ -29,12 +29,10 @@ class AgentConfig(BaseModel):
     active = Column(Boolean, nullable=False, default=True, server_default="true", index=True)
     updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
     updated_by_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
-    restored_from = Column(String(255), nullable=True)
 
     llm_configs = relationship("AgentLLMConfig", back_populates="agent_config", cascade="all, delete-orphan")
     action_defaults = relationship("AgentActionDefault", back_populates="agent_config", cascade="all, delete-orphan")
     prompts = relationship("AgentPrompt", back_populates="agent_config", cascade="all, delete-orphan")
-    snapshots = relationship("AgentConfigSnapshot", back_populates="agent_config", cascade="all, delete-orphan")
 
 
 class AgentLLMConfig(BaseModel):
@@ -108,15 +106,3 @@ class AgentPrompt(BaseModel):
     active = Column(Boolean, nullable=False, default=False, server_default="false", index=True)
 
     agent_config = relationship("AgentConfig", back_populates="prompts")
-
-
-class AgentConfigSnapshot(BaseModel):
-    """Database-backed compatibility snapshot for the existing backup API."""
-
-    __tablename__ = "agent_config_snapshots"
-
-    agent_config_id = Column(UUID(as_uuid=True), ForeignKey("agent_configs.id", ondelete="CASCADE"), nullable=False, index=True)
-    filename = Column(String(255), nullable=False, unique=True, index=True)
-    config_json = Column(JSONVariant, nullable=False)
-
-    agent_config = relationship("AgentConfig", back_populates="snapshots")

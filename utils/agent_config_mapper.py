@@ -56,6 +56,5 @@ class AgentConfigMapper:
         result["metadata"] = {
             "last_updated": agent.updated_at,
             "updated_by": agent.updated_by_id,
-            "restored_from": agent.restored_from,
         }
         return result

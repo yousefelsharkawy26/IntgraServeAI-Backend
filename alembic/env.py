@@ -23,7 +23,7 @@ from models.auth import ApiAuthType, ApiAuthentication
 from models.audit import AuditLog
 from models.action import Action
 from models.agent_config import (
-    AgentConfig, AgentLLMConfig, AgentActionDefault, AgentPrompt, AgentConfigSnapshot,
+    AgentConfig, AgentLLMConfig, AgentActionDefault, AgentPrompt,
 )
 
 # this is the Alembic Config object

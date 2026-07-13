@@ -1,8 +1,9 @@
 from datetime import datetime, timezone
 from uuid import uuid4
 
+from apis.v1.agent_config import router
 from models.agent_config import AgentActionDefault, AgentConfig, AgentLLMConfig, AgentPrompt
-from services.agent_config_service import AgentConfigService, deep_merge
+from services.agent_config_service import AgentConfigService
 from utils.agent_config_mapper import AgentConfigMapper
 
 
@@ -64,16 +65,16 @@ def test_mapper_preserves_existing_engine_contract():
     assert config["global_defaults"]["future_action_type"] == {"future_option": True}
 
 
-def test_full_config_validation_and_deep_merge_preserve_shape():
+def test_full_config_validation_preserves_shape():
     config = AgentConfigMapper.to_api_dict(make_agent())
     validated = AgentConfigService._validate(config)
     assert validated["system_context"]["title"] == "ShopEasy Virtual Assistant"
 
-    merged = deep_merge(
-        {"embedding_config": {"model_name": "new-model"}},
-        {"embedding_config": {"provider": "ollama", "model_name": "old-model"}},
-    )
-    assert merged["embedding_config"] == {
-        "provider": "ollama",
-        "model_name": "new-model",
+
+def test_agent_config_api_exposes_only_full_get_and_put():
+    operations = {
+        (route.path, method)
+        for route in router.routes
+        for method in route.methods
     }
+    assert operations == {("", "GET"), ("", "PUT")}
