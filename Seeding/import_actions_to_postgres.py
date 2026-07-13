@@ -66,7 +66,9 @@ def persistence_values(action_id: str, action: dict[str, Any]) -> dict[str, Any]
         "requires_confirmation": action.get("requires_confirmation", False),
         "requires_human_input": action.get("requires_human_input", False),
         "execution_config": action.get("execution_config"),
-        "parameters": action.get("parameters"),
+        # Legacy parameterless actions omitted this field. Persist the semantic
+        # empty object rather than translating absence into SQL NULL.
+        "parameters": {} if action.get("parameters") is None else action["parameters"],
         "response_config": action.get("response_config"),
     }
 

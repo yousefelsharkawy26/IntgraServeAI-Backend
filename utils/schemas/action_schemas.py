@@ -187,9 +187,19 @@ class ActionCreate(BaseModel):
     active: bool = Field(True, description="Whether the action is active")
     requires_confirmation: bool = Field(False, description="Whether action requires user confirmation")
     execution_config: ExecutionConfig = Field(..., description="Execution configuration")
-    parameters: Optional[Dict[str, ActionParameter]] = Field(None, description="Action parameters")
+    parameters: Optional[Dict[str, ActionParameter]] = Field(
+        default_factory=dict,
+        description="Action parameters",
+    )
     response_config: Optional[ResponseConfig] = Field(None, description="Response configuration")
-    
+
+    @field_validator('parameters', mode='before')
+    @classmethod
+    def normalize_parameters(cls, value):
+        # Parameters are optional in the public request contract, but the
+        # persisted and engine-facing representation is always an object.
+        return {} if value is None else value
+
     @field_validator('name')
     @classmethod
     def validate_name(cls, v: str) -> str:

@@ -27,7 +27,12 @@ def upgrade() -> None:
         sa.Column("requires_confirmation", sa.Boolean(), server_default=sa.false(), nullable=False),
         sa.Column("requires_human_input", sa.Boolean(), server_default=sa.false(), nullable=False),
         sa.Column("execution_config", postgresql.JSONB(astext_type=sa.Text()), nullable=True),
-        sa.Column("parameters", postgresql.JSONB(astext_type=sa.Text()), nullable=True),
+        sa.Column(
+            "parameters",
+            postgresql.JSONB(astext_type=sa.Text()),
+            server_default=sa.text("'{}'::jsonb"),
+            nullable=False,
+        ),
         sa.Column("response_config", postgresql.JSONB(astext_type=sa.Text()), nullable=True),
         sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
         sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),

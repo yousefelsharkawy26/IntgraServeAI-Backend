@@ -1,4 +1,4 @@
-from sqlalchemy import Boolean, Column, DateTime, String, Text, func
+from sqlalchemy import Boolean, Column, DateTime, String, Text, func, text
 
 from core.database import Base
 from models.base import JSONVariant
@@ -21,7 +21,12 @@ class Action(Base):
     requires_confirmation = Column(Boolean, nullable=False, default=False, server_default="false")
     requires_human_input = Column(Boolean, nullable=False, default=False, server_default="false")
     execution_config = Column(JSONVariant, nullable=True)
-    parameters = Column(JSONVariant, nullable=True)
+    parameters = Column(
+        JSONVariant,
+        nullable=False,
+        default=dict,
+        server_default=text("'{}'"),
+    )
     response_config = Column(JSONVariant, nullable=True)
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at = Column(

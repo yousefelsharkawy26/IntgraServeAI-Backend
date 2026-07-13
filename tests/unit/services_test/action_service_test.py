@@ -3,6 +3,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from models.action import Action
+from Seeding.import_actions_to_postgres import persistence_values
 from services.action_service import ActionService
 from utils.exceptions import ActionNotFoundException, InternalActionNotAllowedException
 from utils.schemas.action_schemas import ActionCreate, ActionUpdate
@@ -74,6 +75,31 @@ async def test_create_preserves_nested_config(service, repository):
     persisted = repository.create.await_args.args[0]
     assert persisted.execution_config["headers"] == {"X-API-Key": "secret"}
     assert persisted.parameters["order_id"]["param_type"] == "query"
+
+
+def test_parameterless_create_and_legacy_seed_use_empty_object():
+    payload = ActionCreate(
+        name="health_check",
+        description="Health check",
+        type="api_request",
+        execution_config={
+            "protocol": "https",
+            "method": "GET",
+            "url": "https://example.com/health",
+        },
+        parameters=None,
+    )
+    assert payload.parameters == {}
+
+    legacy = persistence_values(
+        "INT-005",
+        {
+            "name": "request_confirmation",
+            "description": "Request confirmation",
+            "type": "internal",
+        },
+    )
+    assert legacy["parameters"] == {}
 
 
 @pytest.mark.asyncio
